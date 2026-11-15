@@ -117,6 +117,21 @@ public final class PromptBuilder {
                 + "Do not add the game itself.";
     }
 
+    // ------------------------------------------------------------------ friends
+
+    public static String friendRankSystem() {
+        return EXPERT + """
+                You recommend games that a gamer's friends play. From the shortlist, pick the games this gamer is most likely to enjoy
+                and explain each in one or two sentences, mentioning which friend plays it and why it suits THIS gamer's tastes.
+                Only use titles from the shortlist. Reply with ONLY this JSON:
+                {"recommendations":[{"name":"exact title from the shortlist","score":0-100,"reason":"..."}]}""";
+    }
+
+    public static String friendRankUser(String profile, String query, String shortlist, int count) {
+        return "Gamer profile:\n" + profile + "\n\n" + (query == null || query.isBlank() ? "" : "Request: " + query + "\n\n")
+                + "Games their friends play:\n" + shortlist + "\nPick up to " + count + ", best first.";
+    }
+
     // ------------------------------------------------------------------ calendar
 
     public static String playtimeSystem() {
@@ -167,6 +182,7 @@ public final class PromptBuilder {
                 - Use search_games to check facts about a specific title. Use get_news for gaming news. Use get_profile only if you need a refresher.
                 - When the user wants a gaming schedule or calendar, or tells you when they can play, call plan_calendar. The calendar is shown automatically; just comment briefly.
                 - When the user asks how long a game takes to beat (for them), call estimate_playtime.
+                - When the user shares a friend's Steam profile link or asks what their friends play / for recommendations from friends, call friends.
                 - Never invent games, prices or release dates; rely on tool results.
                 - If the request is unclear, ask ONE short clarifying question instead of guessing.
 

@@ -26,6 +26,14 @@ public class RecommendationService {
         return r;
     }
 
+    /** @param friend a friend's name, or blank to use everyone on the list */
+    public RecommendationResult fromFriends(String friend, int count) throws RecommendationException {
+        RecommendationResult r = factory.create(RecommendationFactory.Type.FRIENDS)
+                .recommend(RecommendationRequest.of("", count, friend));
+        catalog.addAll(r.recommendations(), false);
+        return r;
+    }
+
     public GameCatalog catalog() { return catalog; }
 
     /** One-line summary used as the tool observation for the chat agent. */

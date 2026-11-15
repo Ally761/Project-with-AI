@@ -19,10 +19,11 @@ This is the **command-line version**. A GUI can sit on the same `AgentController
 | Steam profile link (most-played games from your public profile URL) | `/steam <profile link>`, `/steam refresh`, `/steam top`, `/steam unlink`, or paste your link in chat | Hybrid: playtime rules are deterministic, the AI uses the result |
 | Gaming calendar (weekly or monthly play schedule) | `/calendar when ...`, `/calendar add <game> \| <hours>`, `/calendar make [weeks\|month] [focus\|mix]`, `/calendar tweak <change>`, or ask in chat | Hybrid: the schedule is computed by rules so it always fits your time; the AI reads free-text availability, estimates playtime and applies tweaks |
 | Playtime estimator ("how long will this take me?") | `/playtime <game>`, or ask in chat | Hybrid: IGDB community data (AI estimate as fallback) for the typical time; rules adjust it to your pace from your Steam hours |
+| Friend recommendations (from your friends' public Steam profiles) | `/friends add <link>`, `/friends recommend [name] [n]`, `/friends common <name>`, or ask in chat | Hybrid: rules collect, filter and score friends' games against your tastes; the AI picks and explains |
 | Interest log | `/history [n]` | Deterministic |
 | Conversational agent with tools (remembers preferences while you talk, then recommends) | type normally | Agent loop |
 
-**Not implemented yet:** friend recommendations, GUI.
+**Not implemented yet:** GUI.
 
 ## Prerequisites
 
@@ -84,7 +85,8 @@ within roughly a minute, rather than a silent wait. Set `LLM_MODEL` / `LLM_FALLB
 ```
 cli/        CliApp, Command objects            -> talk only to AgentController
 agent/      AgentController (Facade), ChatAgent (tool loop), Tools, FeedbackService, RefinementService
-recommend/  RecommendationStrategy (Personalized, Curveball), RecommendationFactory, GameCatalog
+recommend/  RecommendationStrategy (Personalized, Curveball, Friends), RecommendationFactory, GameCatalog
+friends/    FriendService (friends list), FriendRoster (read-only view for strategies)
 profile/    UserProfile, ProfileManager (+ listeners), JSON persistence
 news/       NewsSource (RSS adapter), NewsService
 calendar/   CalendarService, SchedulingStrategy (Focus, Variety), CalendarStore
@@ -97,7 +99,7 @@ llm/        LLMClient (Gemini, OpenAI-compatible), ResilientLLMClient, PromptBui
 | Pattern | Where | Problem it solves |
 |---------|-------|-------------------|
 | Facade | `AgentController` | UIs (CLI now, GUI later) use one class instead of every service |
-| Strategy | `RecommendationStrategy` / `PersonalizedStrategy`, `CurveballStrategy` | Different recommendation algorithms behind one interface |
+| Strategy | `RecommendationStrategy` / `PersonalizedStrategy`, `CurveballStrategy`, `FriendsStrategy` | Different recommendation algorithms behind one interface |
 | Strategy (3) | `PlaytimeStrategy` / `GeneralPlaytimeStrategy`, `PacePlaytimeStrategy` | Typical time as is, or scaled to the user's own pace when enough history exists |
 | Strategy (2) | `SchedulingStrategy` / `FocusScheduling`, `VarietyScheduling` | Finish games one at a time, or rotate between them, behind one interface |
 | Factory | `RecommendationFactory`, `LLMClientFactory` | Central construction of strategies / LLM clients |
@@ -124,6 +126,23 @@ AI estimates the hours and a "vibe" (chill, intense...), and those numbers are s
 match it. `focus` finishes one game before the next; `mix` rotates with sessions of at most 90 minutes.
 If your games do not fit in your free time, the calendar says so and offers three options: shorter games, splitting games into
 sessions (`mix`), or changing your schedule. The plan is saved in `data/calendar.json` and flagged when your profile changes.
+
+## Friend recommendations
+
+```
+/friends add https://steamcommunity.com/id/theirname     add a friend by their public profile link (also: /friends <link>)
+/friends recommend [name] [n]                             games your friends play that suit you (one friend, or all)
+/friends common <name>                                    what you both have, and what they play that you don't
+/friends refresh | remove <name> | /friends               re-read, remove, or list
+```
+
+No login or API key is used, only the friend's public profile page. Steam shows only a profile's most-played games to anyone who
+isn't signed in, so recommendations are based on those few games per friend; adding several friends gives more to work with.
+A private profile can't be read, and you are asked to pick a different friend. Games you already own, have rated or were recently
+shown are skipped, and tools such as Wallpaper Engine are ignored. Games several friends play, and games they play a lot, rank higher;
+the genres are then compared with your weighted likes and dislikes, and the AI picks the best few and explains each one by naming the
+friends who play it. Without the AI, the same ranking is shown with a plain explanation. Friends' data is kept only on your computer
+in `data/friends.json` (git-ignored).
 
 ## Playtime estimator
 

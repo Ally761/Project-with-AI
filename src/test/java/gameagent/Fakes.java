@@ -91,6 +91,11 @@ final class Fakes {
             }
             return "{\"likes\":[{\"category\":\"platform\",\"name\":\"PC\"}],\"dislikes\":[{\"category\":\"tag\",\"name\":\"Grinding\"}],\"remove\":[],\"notes\":[\"sessions around 45 minutes\"]}";
         }
+        if (sys.contains("friends play")) {
+            return "{\"recommendations\":[{\"name\":\"Risk of Rain 2\",\"score\":91,\"reason\":\"Alex and Sam both play it; fits your roguelike taste.\"},"
+                    + "{\"name\":\"Invented Friend Game\",\"score\":99,\"reason\":\"not on the shortlist\"},"
+                    + "{\"name\":\"Rain World\",\"score\":70,\"reason\":\"Alex has 40 h in it.\"}]}";
+        }
         if (sys.contains("typical hours to finish")) {
             StringBuilder sb = new StringBuilder("{\"games\":[");
             boolean first = true;
@@ -220,6 +225,11 @@ final class Fakes {
             if (rateLimited) throw new IOException("HTTP 429 from steamcommunity.com");
             if (down) throw new IOException("connect timed out");
             if (url.contains("/id/hadesfan/?xml=1") || url.contains("/profiles/" + ID + "/?xml=1")) return profile(ID, "Hades Fan", "public", MOST_PLAYED);
+            if (url.contains("/id/alexfriend/?xml=1") || url.contains("/profiles/76561198000000011/?xml=1")) return profile("76561198000000011", "Alex", "public",
+                    game(632360, "Risk of Rain 2", "85", "4") + game(367520, "Hollow Knight", "300", "0") + game(761890, "Rain World", "40", "0")
+                    + game(431960, "Wallpaper Engine", "900", "5"));
+            if (url.contains("/id/samfriend/?xml=1") || url.contains("/profiles/76561198000000012/?xml=1")) return profile("76561198000000012", "Sam", "public",
+                    game(632360, "Risk of Rain 2", "30", "0") + game(730, "Counter-Strike 2", "500", "20") + game(588650, "Dead Cells", "20", "0"));
             if (url.contains("/id/privateguy/?xml=1")) return profile("76561198000000002", "Private Guy", "private", "");
             if (url.contains("/id/hiddengames/?xml=1")) return profile("76561198000000003", "Hidden", "public", "");
             if (url.contains("/id/nobody/?xml=1")) {

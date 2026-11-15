@@ -72,7 +72,8 @@ final class PatternGuards {
                     "gameagent.calendar.CalendarException", "gameagent.calendar.CalendarGame", "gameagent.calendar.CalendarPlan",
                     "gameagent.calendar.GameProgress", "gameagent.calendar.Minutes", "gameagent.calendar.PlaySlot",
                     "gameagent.calendar.ScheduleMode", "gameagent.calendar.Session",
-                    "gameagent.playtime.PlaytimeException", "gameagent.playtime.PlaytimeResult");
+                    "gameagent.playtime.PlaytimeException", "gameagent.playtime.PlaytimeResult",
+                    "gameagent.friends.Friend", "gameagent.friends.FriendException", "gameagent.friends.CommonGames");
             List<String> violations = new ArrayList<>();
             for (var e : src.entrySet()) {
                 if (!e.getKey().startsWith("gameagent/cli/")) continue;
@@ -142,6 +143,8 @@ final class PatternGuards {
                 kinds.add(s.getClass());
             }
             AllTests.check(kinds.size() == RecommendationFactory.Type.values().length && kinds.size() >= 2, "one distinct strategy per type: " + kinds);
+            AllTests.check(java.util.Arrays.asList(RecommendationFactory.Type.values()).contains(RecommendationFactory.Type.FRIENDS), "friend picks are a strategy type");
+            AllTests.check(!src.get("gameagent/recommend/FriendsStrategy.java").contains("FriendService"), "the strategy sees friends only through the FriendRoster interface");
             String service = src.get("gameagent/recommend/RecommendationService.java");
             AllTests.check(!service.contains("PersonalizedStrategy") && !service.contains("CurveballStrategy"),
                     "the context (RecommendationService) must get strategies from the factory, not construct them");
@@ -180,6 +183,8 @@ final class PatternGuards {
             AllTests.check(gameagent.cli.commands.Commands.standard().find("calendar").isPresent(), "/calendar registered");
             AllTests.check(gameagent.cli.commands.Commands.standard().find("cal").isPresent(), "alias registered");
             AllTests.check(gameagent.cli.commands.Commands.standard().find("playtime").isPresent(), "/playtime registered");
+            AllTests.check(gameagent.cli.commands.Commands.standard().find("friends").isPresent(), "/friends registered");
+            AllTests.check(src.get("gameagent/AppContext.java").contains("new FriendsTool("), "friends tool registered");
             AllTests.check(src.get("gameagent/AppContext.java").contains("new EstimatePlaytimeTool("), "estimate_playtime tool registered");
             AllTests.check(src.get("gameagent/AppContext.java").contains("new PlanCalendarTool("), "plan_calendar tool registered");
         });

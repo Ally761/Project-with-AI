@@ -21,6 +21,7 @@ public final class Commands {
                 .register(new SteamCommand())
                 .register(new CalendarCommand())
                 .register(new PlaytimeCommand())
+                .register(new FriendsCommand())
                 .register(new RefineCommand())
                 .register(new CatalogCommand())
                 .register(new HistoryCommand())

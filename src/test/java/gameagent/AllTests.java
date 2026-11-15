@@ -1004,6 +1004,96 @@ public class AllTests {
             eq("abc", new AppConfig(Map.of("IGDB_CLIENT_SECRET", "abc")).igdbClientSecret(), "secret read");
         });
 
+        System.out.println("Friend recommendations");
+        test("friends: add by profile link, list, persist, reject yourself and private profiles", () -> {
+            Path d = tmp();
+            AgentController c = controller(new Fakes.ScriptedLLM(Fakes::smartScript), new Fakes.FakeSteam(), List.of(), d);
+            var alex = c.addFriend("https://steamcommunity.com/id/alexfriend/");
+            eq("Alex", alex.name(), "persona name");
+            eq(3, alex.games().size(), "tools such as Wallpaper Engine are dropped");
+            c.addFriend("samfriend");
+            eq(2, c.friends().size(), "two friends");
+            for (String bad : new String[]{"https://steamcommunity.com/id/privateguy/", "https://steamcommunity.com/id/hiddengames/"}) {
+                try { c.addFriend(bad); check(false, "private must fail: " + bad); }
+                catch (gameagent.steam.SteamProfileException e) { check(e.getMessage().contains("different friend") || e.getMessage().contains("public"), e.getMessage()); }
+            }
+            try { c.addFriend("https://steamcommunity.com/id/nobody/"); check(false, "unknown"); } catch (gameagent.steam.SteamProfileException e) { check(e.getMessage().length() > 5, e.getMessage()); }
+            c.linkSteam("hadesfan");
+            try { c.addFriend("hadesfan"); check(false, "yourself"); } catch (gameagent.steam.SteamProfileException e) { check(e.getMessage().contains("your own"), e.getMessage()); }
+            eq(2, c.friends().size(), "failed adds change nothing");
+            AgentController again = controller(new Fakes.ScriptedLLM(Fakes::smartScript), new Fakes.FakeSteam(), List.of(), d);
+            eq(2, again.friends().size(), "friends survive a restart");
+            check(again.removeFriend("sam") && again.friends().size() == 1, "remove by name prefix");
+            check(!again.removeFriend("nobody here"), "unknown removal");
+        });
+        test("friends: recommendations skip what you own, count several friends higher, and name the friends", () -> {
+            Fakes.ScriptedLLM llm = new Fakes.ScriptedLLM(Fakes::smartScript);
+            AgentController c = controller(llm, new Fakes.FakeSteam(), List.of(), tmp());
+            try { c.recommendFromFriends("", 5); check(false, "no friends"); } catch (gameagent.recommend.RecommendationException e) { check(e.getMessage().contains("/friends add"), e.getMessage()); }
+            c.linkSteam("hadesfan"); // owns Hollow Knight, Counter-Strike 2, Dead Cells...
+            c.addFriend("alexfriend");
+            c.addFriend("samfriend");
+            var r = c.recommendFromFriends("", 5);
+            var names = r.recommendations().stream().map(x -> x.game().name()).toList();
+            check(names.contains("Risk of Rain 2") && names.contains("Rain World"), "friends' new games: " + names);
+            check(names.stream().noneMatch(n -> List.of("Hollow Knight", "Counter-Strike 2", "Dead Cells", "Wallpaper Engine", "Invented Friend Game").contains(n)),
+                    "owned, tool and invented games are excluded: " + names);
+            eq("Risk of Rain 2", names.get(0), "played by two friends and ranked first");
+            var top = r.recommendations().get(0);
+            check(top.label().contains("Alex") && top.label().contains("Sam"), "label names the friends: " + top.label());
+            check(top.game().verified() && !top.game().genres().isEmpty(), "enriched with store data");
+            check(r.warnings().stream().anyMatch(w -> w.contains("most-played")), "limit disclosed: " + r.warnings());
+            AgentController other = controller(new Fakes.ScriptedLLM(Fakes::smartScript), new Fakes.FakeSteam(), List.of(), tmp());
+            other.linkSteam("hadesfan");
+            other.addFriend("alexfriend");
+            other.addFriend("samfriend");
+            var onlySam = other.recommendFromFriends("sam", 5);
+            check(onlySam.recommendations().stream().noneMatch(x -> x.game().name().equals("Rain World")), "Rain World is only Alex's");
+            check(onlySam.recommendations().stream().allMatch(x -> x.label().equals("Friends: Sam")), "only Sam credited");
+            try { c.recommendFromFriends("nobody", 5); check(false, "unknown friend"); } catch (gameagent.recommend.RecommendationException e) { check(e.getMessage().contains("don't have a friend"), e.getMessage()); }
+            check(c.catalog().all().stream().anyMatch(x -> x.game().name().equals("Risk of Rain 2")), "saved to the catalogue");
+        });
+        test("friends: works without the AI, ranks by friend playtime and taste, and disliked genres sink a game", () -> {
+            Fakes.ScriptedLLM llm = new Fakes.ScriptedLLM(Fakes::smartScript);
+            AgentController c = controller(llm, new Fakes.FakeSteam(), List.of(), tmp());
+            c.addFriend("alexfriend");
+            c.updateProfile(new ProfileUpdate("user").dislike(Category.GENRE, "Adventure"), ConflictResolver.NEWEST_WINS);
+            llm.down = true;
+            var r = c.recommendFromFriends("", 5);
+            check(r.warnings().stream().anyMatch(w -> w.contains("AI is unavailable")), "explained: " + r.warnings());
+            eq("Risk of Rain 2", r.recommendations().get(0).game().name(), "Rain World (Adventure) is disliked, so it ranks lower");
+            check(r.recommendations().get(0).reason().contains("Alex has 85 h"), r.recommendations().get(0).reason());
+            var game = new gameagent.model.Game("X", 1, "", List.of("Action", "Adventure"), "", "", "", true);
+            var likes = new gameagent.profile.UserProfile();
+            double neutral = gameagent.recommend.FriendsStrategy.tasteScore(game, likes);
+            eq(0.0, neutral, "no tastes, no effect");
+        });
+        test("friends: common games and refresh", () -> {
+            AgentController c = controller(new Fakes.ScriptedLLM(Fakes::smartScript), new Fakes.FakeSteam(), List.of(), tmp());
+            c.linkSteam("hadesfan");
+            c.addFriend("alexfriend");
+            var common = c.commonGames("alex");
+            check(common.shared().contains("Hollow Knight"), "shared: " + common.shared());
+            check(common.onlyTheirs().stream().anyMatch(g -> g.name().equals("Rain World")), "theirs only");
+            try { c.commonGames("stranger"); check(false, "unknown"); } catch (gameagent.friends.FriendException e) { check(e.getMessage().contains("don't have a friend"), e.getMessage()); }
+            check(c.refreshFriends().isEmpty(), "refresh is clean");
+        });
+        test("cli: /friends end to end", () -> {
+            AgentController c = controller(new Fakes.ScriptedLLM(Fakes::smartScript), new Fakes.FakeSteam(), List.of(), tmp());
+            String input = "/friends\n/friends add https://steamcommunity.com/id/privateguy/\n/friends add https://steamcommunity.com/id/alexfriend/\n"
+                    + "/friends https://steamcommunity.com/id/samfriend/\n/friends\n/friends recommend\n/friends recommend alex 1\n/friends common alex\n"
+                    + "/friends remove sam\n/friends refresh\n/quit\n";
+            ByteArrayOutputStream buf = new ByteArrayOutputStream();
+            new CliApp(c, new BufferedReader(new StringReader(input)), new PrintStream(buf, true, StandardCharsets.UTF_8)).run();
+            String out = buf.toString(StandardCharsets.UTF_8);
+            System.out.println("    ---- CLI transcript (excerpt) ----");
+            for (String line : out.split("\n")) System.out.println("    | " + line);
+            for (String must : new String[]{"No friends added yet", "pick a different friend", "Added Alex", "Added Sam", "Risk of Rain 2", "Friends: Alex, Sam",
+                    "Removed sam.", "Friends refreshed."}) {
+                check(out.contains(must), "CLI output should contain: " + must);
+            }
+        });
+
         PatternGuards.run();
 
         System.out.println("\n" + passed + " passed, " + failed + " failed");

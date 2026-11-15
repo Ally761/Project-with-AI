@@ -11,6 +11,10 @@ import gameagent.calendar.PlaySlot;
 import gameagent.calendar.ScheduleMode;
 import gameagent.data.DataSourceException;
 import gameagent.data.GameDataSource;
+import gameagent.friends.CommonGames;
+import gameagent.friends.Friend;
+import gameagent.friends.FriendException;
+import gameagent.friends.FriendService;
 import gameagent.llm.LLMClient;
 import gameagent.llm.LLMException;
 import gameagent.model.Game;
@@ -49,11 +53,12 @@ public class AgentController {
     private final SteamLinkService steam;
     private final CalendarService calendar;
     private final PlaytimeService playtime;
+    private final FriendService friends;
 
     public AgentController(LLMClient llm, ProfileManager profiles, ChatAgent chatAgent, ConversationMemory memory,
                            RecommendationService recommendations, NewsService news, FeedbackService feedback,
                            RefinementService refinement, GameDataSource data, SteamLinkService steam,
-                           CalendarService calendar, PlaytimeService playtime) {
+                           CalendarService calendar, PlaytimeService playtime, FriendService friends) {
         this.llm = llm;
         this.profiles = profiles;
         this.chatAgent = chatAgent;
@@ -66,6 +71,7 @@ public class AgentController {
         this.steam = steam;
         this.calendar = calendar;
         this.playtime = playtime;
+        this.friends = friends;
     }
 
     public String modelName() { return llm.name(); }
@@ -161,6 +167,25 @@ public class AgentController {
     public PlaytimeResult estimatePlaytime(String game) throws PlaytimeException {
         profiles.log("playtime", game == null ? "" : game);
         return playtime.estimate(game);
+    }
+
+    // ---- friends
+    /** Adds a friend by their public Steam profile link (no login or API key). */
+    public Friend addFriend(String profile) throws SteamProfileException { return friends.add(profile); }
+
+    public boolean removeFriend(String name) { return friends.remove(name); }
+
+    public List<Friend> friends() { return friends.friends(); }
+
+    /** @return problems met while re-reading friends (e.g. a profile that has since gone private) */
+    public List<String> refreshFriends() { return friends.refresh(); }
+
+    public CommonGames commonGames(String friend) throws FriendException { return friends.common(friend); }
+
+    /** Games the friends play that suit the user. @param friend one friend's name, or blank for everyone */
+    public RecommendationResult recommendFromFriends(String friend, int count) throws RecommendationException {
+        profiles.log("friends", friend == null ? "" : friend);
+        return recommendations.fromFriends(friend, count);
     }
 
     // ---- misc

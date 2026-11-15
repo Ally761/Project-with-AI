@@ -11,6 +11,7 @@ import gameagent.agent.FeedbackService;
 import gameagent.agent.RefinementService;
 import gameagent.agent.ToolRegistry;
 import gameagent.agent.tools.EstimatePlaytimeTool;
+import gameagent.agent.tools.FriendsTool;
 import gameagent.agent.tools.GetNewsTool;
 import gameagent.agent.tools.PlanCalendarTool;
 import gameagent.agent.tools.GetProfileTool;
@@ -22,6 +23,7 @@ import gameagent.calendar.CalendarService;
 import gameagent.calendar.CalendarStore;
 import gameagent.config.AppConfig;
 import gameagent.data.GameDataSource;
+import gameagent.friends.FriendService;
 import gameagent.data.SteamStoreAdapter;
 import gameagent.llm.LLMClient;
 import gameagent.llm.LLMClientFactory;
@@ -81,7 +83,8 @@ public final class AppContext {
         profiles.addListener(catalog);
         profiles.addListener(news);
 
-        RecommendationService recs = new RecommendationService(new RecommendationFactory(llm, data, profiles), catalog);
+        FriendService friends = new FriendService(steamProfiles, profiles, dataDir.resolve("friends.json"));
+        RecommendationService recs = new RecommendationService(new RecommendationFactory(llm, data, profiles, friends), catalog);
         SteamLinkService steam = new SteamLinkService(steamProfiles, data, profiles);
         LlmPlaytimeEstimator estimator = new LlmPlaytimeEstimator(llm);
         PlaytimeService playtime = new PlaytimeService(lengths, estimator, profiles);
@@ -96,11 +99,12 @@ public final class AppContext {
                 .register(new GetProfileTool(profiles))
                 .register(new LinkSteamTool(steam))
                 .register(new PlanCalendarTool(calendar))
-                .register(new EstimatePlaytimeTool(playtime));
+                .register(new EstimatePlaytimeTool(playtime))
+                .register(new FriendsTool(friends, recs));
         ConversationMemory memory = new ConversationMemory(12);
         ChatAgent chat = new ChatAgent(llm, tools, profiles, memory);
 
         return new AgentController(llm, profiles, chat, memory, recs, news,
-                new FeedbackService(profiles, llm, data), new RefinementService(profiles, llm), data, steam, calendar, playtime);
+                new FeedbackService(profiles, llm, data), new RefinementService(profiles, llm), data, steam, calendar, playtime, friends);
     }
 }
