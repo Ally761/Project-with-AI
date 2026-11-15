@@ -1,5 +1,6 @@
 package gameagent;
 
+import gameagent.model.SteamLinkResult;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
@@ -31,7 +32,7 @@ import gameagent.profile.ProfileEvent;
 import gameagent.profile.ProfileManager;
 import gameagent.profile.ProfileUpdate;
 import gameagent.profile.UserProfile;
-import gameagent.recommend.RecommendationFactory;
+import gameagent.recommend.RecommendationRequest;
 import gameagent.recommend.RecommendationStrategy;
 
 /**
@@ -59,9 +60,6 @@ final class PatternGuards {
         }
 
         AllTests.test("Facade: the CLI reaches the application only through AgentController", () -> {
-            // Result/parameter types that are nested inside service classes. Known coupling: the CLI names them but never calls the service.
-            Set<String> nestedResultTypes = Set.of("gameagent.profile.ProfileManager", "gameagent.agent.FeedbackService",
-                    "gameagent.agent.RefinementService", "gameagent.steam.SteamLinkService");
             Set<String> readModels = Set.of("gameagent.agent.AgentController", "gameagent.agent.AgentReply",
                     "gameagent.profile.Category", "gameagent.profile.ConflictResolver", "gameagent.profile.Preference",
                     "gameagent.profile.ProfileUpdate", "gameagent.profile.Sentiment", "gameagent.profile.UserProfile",
@@ -81,12 +79,12 @@ final class PatternGuards {
                 while (m.find()) {
                     String imp = m.group(1);
                     boolean ok = imp.startsWith("gameagent.cli.") || imp.startsWith("gameagent.model.")
-                            || readModels.contains(imp) || nestedResultTypes.contains(imp);
+                            || readModels.contains(imp);
                     if (!ok) violations.add(e.getKey() + " imports " + imp);
                 }
             }
             AllTests.check(violations.isEmpty(), "CLI must go through AgentController (Facade). Bypassed by: " + violations);
-            AllTests.check(src.get("gameagent/agent/AgentController.java").contains("public SteamLinkService.LinkResult linkSteam"),
+            AllTests.check(src.get("gameagent/agent/AgentController.java").contains("public SteamLinkResult linkSteam"),
                     "Steam is exposed on the facade");
         });
 
@@ -133,21 +131,45 @@ final class PatternGuards {
             AllTests.check(c.catalog().isStale(), "GameCatalog was told the profile changed");
         });
 
-        AllTests.test("Strategy + Factory: each recommendation type is a distinct RecommendationStrategy built by the factory", () -> {
+        AllTests.test("Factory Method + Strategy: each recommender creates its own RecommendationStrategy; nothing else constructs them", () -> {
             ProfileManager pm = new ProfileManager(new UserProfile());
-            RecommendationFactory f = new RecommendationFactory(AllTests.stub("x", () -> "{}"), new SteamStoreAdapter(new Fakes.FakeSteam(), "US"), pm);
+            var llm = AllTests.stub("x", () -> "{}");
+            var data = new SteamStoreAdapter(new Fakes.FakeSteam(), "US");
+            var catalog = new gameagent.recommend.GameCatalog(AllTests.tmp().resolve("c.json"));
+            List<gameagent.recommend.Recommender> creators = List.of(new gameagent.recommend.PersonalizedRecommender(llm, data, pm, catalog),
+                    new gameagent.recommend.CurveballRecommender(llm, data, pm, catalog),
+                    new gameagent.recommend.FriendsRecommender(llm, data, pm, gameagent.friends.FriendRoster.empty(), catalog));
+            java.lang.reflect.Method factoryMethod = gameagent.recommend.Recommender.class.getDeclaredMethod("createStrategy");
+            AllTests.check(java.lang.reflect.Modifier.isAbstract(factoryMethod.getModifiers()), "createStrategy() is the abstract factory method");
+            AllTests.check(java.lang.reflect.Modifier.isAbstract(gameagent.recommend.Recommender.class.getModifiers()), "the creator is abstract");
+            AllTests.check(java.lang.reflect.Modifier.isFinal(gameagent.recommend.Recommender.class.getMethod("recommend", RecommendationRequest.class).getModifiers()),
+                    "the operation that uses the product is fixed in the creator");
             Set<Class<?>> kinds = new HashSet<>();
-            for (RecommendationFactory.Type t : RecommendationFactory.Type.values()) {
-                RecommendationStrategy s = f.create(t);
-                AllTests.check(s != null && !s.name().isBlank(), "strategy for " + t);
+            for (var creator : creators) {
+                java.lang.reflect.Method m = creator.getClass().getDeclaredMethod("createStrategy");
+                m.setAccessible(true);
+                RecommendationStrategy s = (RecommendationStrategy) m.invoke(creator);
+                AllTests.check(s != null && !s.name().isBlank(), "strategy from " + creator.getClass().getSimpleName());
                 kinds.add(s.getClass());
             }
-            AllTests.check(kinds.size() == RecommendationFactory.Type.values().length && kinds.size() >= 2, "one distinct strategy per type: " + kinds);
-            AllTests.check(java.util.Arrays.asList(RecommendationFactory.Type.values()).contains(RecommendationFactory.Type.FRIENDS), "friend picks are a strategy type");
+            AllTests.check(kinds.size() == creators.size(), "one distinct strategy per creator: " + kinds);
+            long creatorFiles = src.keySet().stream().filter(k -> src.get(k).contains("extends Recommender")).count();
+            long strategyFiles = src.keySet().stream().filter(k -> src.get(k).contains("implements RecommendationStrategy")).count();
+            AllTests.check(creatorFiles == strategyFiles && creatorFiles >= 3, "every strategy has exactly one creator (" + creatorFiles + " vs " + strategyFiles + ")");
+            List<String> violations = new ArrayList<>();
+            for (var e : src.entrySet()) {
+                String file = e.getKey().substring(e.getKey().lastIndexOf('/') + 1).replace(".java", "");
+                if (file.endsWith("Recommender")) continue;
+                for (String st : List.of("PersonalizedStrategy", "CurveballStrategy", "FriendsStrategy")) {
+                    if (e.getValue().contains("new " + st + "(")) violations.add(e.getKey() + " constructs " + st);
+                }
+            }
+            AllTests.check(violations.isEmpty(), "only the creators construct strategies: " + violations);
             AllTests.check(!src.get("gameagent/recommend/FriendsStrategy.java").contains("FriendService"), "the strategy sees friends only through the FriendRoster interface");
             String service = src.get("gameagent/recommend/RecommendationService.java");
-            AllTests.check(!service.contains("PersonalizedStrategy") && !service.contains("CurveballStrategy"),
-                    "the context (RecommendationService) must get strategies from the factory, not construct them");
+            AllTests.check(!service.contains("Strategy") && !service.contains("new PersonalizedRecommender"),
+                    "the service works with abstract Recommenders only");
+            AllTests.check(src.get("gameagent/AppContext.java").contains("new FriendsRecommender("), "the composition root chooses the concrete creators");
         });
 
         AllTests.test("Strategy (calendar): each schedule mode is its own SchedulingStrategy and the service never names one", () -> {

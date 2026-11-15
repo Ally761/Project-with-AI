@@ -1,5 +1,6 @@
 package gameagent.agent.tools;
 
+import gameagent.model.ApplyResult;
 import java.util.Map;
 
 import gameagent.agent.Tool;
@@ -29,7 +30,7 @@ public class UpdatePreferencesTool implements Tool {
     public ToolResult execute(Map<String, Object> args, ToolContext ctx) {
         ProfileUpdate update = ProfileUpdate.fromJson(args, "chat");
         if (update.isEmpty()) return ToolResult.error("No valid likes, dislikes, removals or notes were provided.");
-        ProfileManager.ApplyResult r = profiles.apply(update, ConflictResolver.NEWEST_WINS);
+        ApplyResult r = profiles.apply(update, ConflictResolver.NEWEST_WINS);
         ctx.profileChanges.addAll(r.applied());
         String obs = r.applied().isEmpty() ? "Nothing changed." : "Saved: " + String.join("; ", r.applied()) + ".";
         if (!r.skipped().isEmpty()) obs += " Skipped: " + String.join("; ", r.skipped()) + ".";

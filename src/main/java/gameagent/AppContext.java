@@ -39,7 +39,9 @@ import gameagent.profile.JsonProfileRepository;
 import gameagent.profile.ProfileManager;
 import gameagent.profile.ProfileRepository;
 import gameagent.recommend.GameCatalog;
-import gameagent.recommend.RecommendationFactory;
+import gameagent.recommend.CurveballRecommender;
+import gameagent.recommend.FriendsRecommender;
+import gameagent.recommend.PersonalizedRecommender;
 import gameagent.recommend.RecommendationService;
 import gameagent.steam.SteamCommunityAdapter;
 import gameagent.steam.SteamLinkService;
@@ -84,7 +86,9 @@ public final class AppContext {
         profiles.addListener(news);
 
         FriendService friends = new FriendService(steamProfiles, profiles, dataDir.resolve("friends.json"));
-        RecommendationService recs = new RecommendationService(new RecommendationFactory(llm, data, profiles, friends), catalog);
+        RecommendationService recs = new RecommendationService(
+                new PersonalizedRecommender(llm, data, profiles, catalog), new CurveballRecommender(llm, data, profiles, catalog),
+                new FriendsRecommender(llm, data, profiles, friends, catalog), catalog);
         SteamLinkService steam = new SteamLinkService(steamProfiles, data, profiles);
         LlmPlaytimeEstimator estimator = new LlmPlaytimeEstimator(llm);
         PlaytimeService playtime = new PlaytimeService(lengths, estimator, profiles);

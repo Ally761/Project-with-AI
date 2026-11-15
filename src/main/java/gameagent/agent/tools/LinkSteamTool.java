@@ -1,5 +1,6 @@
 package gameagent.agent.tools;
 
+import gameagent.model.SteamLinkResult;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -31,7 +32,7 @@ public class LinkSteamTool implements Tool {
     public ToolResult execute(Map<String, Object> args, ToolContext ctx) {
         String profile = Json.str(args, "profile", "").trim();
         try {
-            SteamLinkService.LinkResult r = profile.isEmpty() ? steam.refresh() : steam.link(profile);
+            SteamLinkResult r = profile.isEmpty() ? steam.refresh() : steam.link(profile);
             ctx.profileChanges.addAll(r.applied());
             ctx.warnings.addAll(r.warnings());
             String top = r.topPlayed().stream().limit(5).map(g -> g.name() + " (" + Math.round(g.hours()) + " h)")

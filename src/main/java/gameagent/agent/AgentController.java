@@ -1,5 +1,9 @@
 package gameagent.agent;
 
+import gameagent.model.SteamLinkResult;
+import gameagent.model.RefinementAnswer;
+import gameagent.model.FeedbackResult;
+import gameagent.model.ApplyResult;
 import java.util.List;
 import java.util.Optional;
 
@@ -102,7 +106,7 @@ public class AgentController {
     // ---- profile
     public UserProfile profile() { return profiles.profile(); }
 
-    public ProfileManager.ApplyResult updateProfile(ProfileUpdate update, ConflictResolver resolver) {
+    public ApplyResult updateProfile(ProfileUpdate update, ConflictResolver resolver) {
         return profiles.apply(update, resolver);
     }
 
@@ -115,23 +119,23 @@ public class AgentController {
     }
 
     // ---- feedback
-    public FeedbackService.Result submitFeedback(String game, int rating, String comment) {
+    public FeedbackResult submitFeedback(String game, int rating, String comment) {
         return feedback.submit(game, rating, comment);
     }
 
     // ---- refinement
     public List<String> refinementQuestions(int count) throws LLMException { return refinement.questions(count); }
 
-    public ProfileManager.ApplyResult submitRefinement(List<RefinementService.QA> answers) throws LLMException {
+    public ApplyResult submitRefinement(List<RefinementAnswer> answers) throws LLMException {
         return refinement.interpret(answers);
     }
 
     // ---- steam
     /** Links a public Steam profile (link, 17-digit ID or custom URL name) and imports tastes from its library. */
-    public SteamLinkService.LinkResult linkSteam(String profile) throws SteamProfileException { return steam.link(profile); }
+    public SteamLinkResult linkSteam(String profile) throws SteamProfileException { return steam.link(profile); }
 
     /** Re-reads the linked profile. */
-    public SteamLinkService.LinkResult refreshSteam() throws SteamProfileException { return steam.refresh(); }
+    public SteamLinkResult refreshSteam() throws SteamProfileException { return steam.refresh(); }
 
     /** Forgets the link and library; optionally removes the preferences that were imported from it. */
     public List<String> unlinkSteam(boolean removeImported) { return steam.unlink(removeImported); }

@@ -1,5 +1,7 @@
 package gameagent;
 
+import gameagent.model.RefinementAnswer;
+import gameagent.model.FeedbackResult;
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
@@ -439,17 +441,17 @@ public class AllTests {
         test("feedback: rating drives deterministic updates, comment goes through AI, conflicts flagged", () -> {
             Fakes.ScriptedLLM llm = new Fakes.ScriptedLLM(Fakes::smartScript);
             AgentController c = controller(llm, new Fakes.FakeSteam(), List.of(), tmp());
-            FeedbackService.Result r = c.submitFeedback("Hades", 5, "great combat, weak story");
+            FeedbackResult r = c.submitFeedback("Hades", 5, "great combat, weak story");
             eq(Sentiment.LIKE, c.profile().find(Category.GAME, "Hades").orElseThrow().sentiment(), "liked game");
             check(c.profile().find(Category.GENRE, "RPG").isPresent(), "genres from store data liked");
             check(c.profile().find(Category.TAG, "Weak story").map(p -> p.sentiment() == Sentiment.DISLIKE).orElse(false), "AI extracted dislike");
-            FeedbackService.Result conflict = c.submitFeedback("Hades", 1, "");
+            FeedbackResult conflict = c.submitFeedback("Hades", 1, "");
             check(conflict.warnings().stream().anyMatch(w -> w.contains("conflicts")), "conflict warning");
             eq(1, c.profile().feedback().size(), "latest replaces earlier");
             eq(Sentiment.DISLIKE, c.profile().find(Category.GAME, "Hades").orElseThrow().sentiment(), "newest wins");
             try { c.submitFeedback("Hades", 9, ""); check(false, "throw"); } catch (IllegalArgumentException e) { check(true, ""); }
             llm.down = true;
-            FeedbackService.Result degraded = c.submitFeedback("Dead Cells", 4, "fun");
+            FeedbackResult degraded = c.submitFeedback("Dead Cells", 4, "fun");
             check(degraded.warnings().stream().anyMatch(w -> w.contains("could not be analysed")), "degrades gracefully");
             check(c.profile().find(Category.GAME, "Dead Cells").isPresent(), "rating still applied");
         });
@@ -459,9 +461,9 @@ public class AllTests {
             List<String> qs = c.refinementQuestions(4);
             eq(3, qs.size(), "questions");
             int calls = llm.requests.size();
-            c.submitRefinement(List.of(new RefinementService.QA(qs.get(0), " "), new RefinementService.QA(qs.get(1), "")));
+            c.submitRefinement(List.of(new RefinementAnswer(qs.get(0), " "), new RefinementAnswer(qs.get(1), "")));
             eq(calls, llm.requests.size(), "blank answers: no LLM call");
-            var res = c.submitRefinement(List.of(new RefinementService.QA(qs.get(0), "PC, mostly"), new RefinementService.QA(qs.get(1), "about 45 minutes")));
+            var res = c.submitRefinement(List.of(new RefinementAnswer(qs.get(0), "PC, mostly"), new RefinementAnswer(qs.get(1), "about 45 minutes")));
             check(res.changedAnything(), "applied");
             check(c.profile().find(Category.PLATFORM, "PC").isPresent(), "platform stored");
             check(c.profile().notes().stream().anyMatch(n -> n.contains("45")), "note stored");

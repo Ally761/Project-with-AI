@@ -1,11 +1,11 @@
 package gameagent.cli.commands;
 
+import gameagent.model.RefinementAnswer;
+import gameagent.model.ApplyResult;
 import java.util.ArrayList;
 import java.util.List;
 
-import gameagent.agent.RefinementService;
 import gameagent.cli.CliContext;
-import gameagent.profile.ProfileManager;
 
 class RefineCommand extends BaseCommand {
     RefineCommand() {
@@ -20,14 +20,14 @@ class RefineCommand extends BaseCommand {
             return;
         }
         ctx.println("A few quick questions (press Enter to skip one, type 'stop' to finish):");
-        List<RefinementService.QA> answers = new ArrayList<>();
+        List<RefinementAnswer> answers = new ArrayList<>();
         for (int i = 0; i < questions.size(); i++) {
             String a = ctx.ask("\n" + (i + 1) + ". " + questions.get(i) + "\n> ");
             if (a == null || a.trim().equalsIgnoreCase("stop")) break;
-            answers.add(new RefinementService.QA(questions.get(i), a));
+            answers.add(new RefinementAnswer(questions.get(i), a));
         }
         ctx.println("\nUpdating your profile...");
-        ProfileManager.ApplyResult r = ctx.agent().submitRefinement(answers);
+        ApplyResult r = ctx.agent().submitRefinement(answers);
         if (r.applied().isEmpty()) ctx.println("Nothing new learned.");
         r.applied().forEach(s -> ctx.println("  + " + s));
         r.skipped().forEach(s -> ctx.println("  - " + s));

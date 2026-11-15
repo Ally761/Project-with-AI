@@ -1,5 +1,6 @@
 package gameagent.cli.commands;
 
+import gameagent.model.SteamLinkResult;
 import java.util.Locale;
 import java.util.Optional;
 
@@ -7,7 +8,6 @@ import gameagent.cli.CliContext;
 import gameagent.model.OwnedGame;
 import gameagent.model.SteamLink;
 import gameagent.profile.UserProfile;
-import gameagent.steam.SteamLinkService;
 import gameagent.steam.SteamProfileException;
 
 class SteamCommand extends BaseCommand {
@@ -48,7 +48,7 @@ class SteamCommand extends BaseCommand {
         ctx.println("Use /steam refresh to re-read it, /steam top for your most played, /steam unlink to remove it.");
     }
 
-    private void show(CliContext ctx, SteamLinkService.LinkResult r) {
+    private void show(CliContext ctx, SteamLinkResult r) {
         ctx.println("Linked " + r.link().personaName() + ": read " + r.libraryCount() + (r.libraryCount() == 1 ? " game" : " games") + ", " + Math.round(r.totalHours()) + " hours between them.");
         if (!r.topPlayed().isEmpty()) {
             ctx.println("Most played: " + String.join(", ", r.topPlayed().stream()

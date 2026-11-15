@@ -1,9 +1,9 @@
 package gameagent.cli.commands;
 
+import gameagent.model.ApplyResult;
 import gameagent.cli.CliContext;
 import gameagent.profile.Category;
 import gameagent.profile.ConflictResolver;
-import gameagent.profile.ProfileManager;
 import gameagent.profile.ProfileUpdate;
 
 class ForgetCommand extends BaseCommand {
@@ -31,7 +31,7 @@ class ForgetCommand extends BaseCommand {
             ctx.println("Usage: " + usage());
             return;
         }
-        ProfileManager.ApplyResult r = ctx.agent().updateProfile(
+        ApplyResult r = ctx.agent().updateProfile(
                 new ProfileUpdate("user").remove(Category.parse(parts[0]), parts[1]), ConflictResolver.KEEP_EXISTING);
         r.applied().forEach(s -> ctx.println("  - " + s));
         r.skipped().forEach(s -> ctx.println("  " + s));

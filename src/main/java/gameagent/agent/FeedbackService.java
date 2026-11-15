@@ -1,5 +1,6 @@
 package gameagent.agent;
 
+import gameagent.model.FeedbackResult;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -26,8 +27,6 @@ import gameagent.util.JsonException;
  * the comment is interpreted by the LLM (skipped with a warning if the LLM is unavailable).
  */
 public class FeedbackService {
-    public record Result(List<String> changes, List<String> warnings) {}
-
     private final ProfileManager profiles;
     private final LLMClient llm;
     private final GameDataSource data;
@@ -38,7 +37,7 @@ public class FeedbackService {
         this.data = data;
     }
 
-    public Result submit(String game, int rating, String comment) {
+    public FeedbackResult submit(String game, int rating, String comment) {
         if (game == null || game.isBlank()) throw new IllegalArgumentException("Game name is required.");
         if (rating < 1 || rating > 5) throw new IllegalArgumentException("Rating must be between 1 and 5.");
         String cmt = comment == null ? "" : comment.trim();
@@ -80,6 +79,6 @@ public class FeedbackService {
                 warnings.add("Your comment was saved but the AI's analysis was unreadable.");
             }
         }
-        return new Result(changes, warnings);
+        return new FeedbackResult(changes, warnings);
     }
 }

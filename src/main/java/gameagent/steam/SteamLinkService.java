@@ -1,5 +1,6 @@
 package gameagent.steam;
 
+import gameagent.model.SteamLinkResult;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -17,10 +18,6 @@ import gameagent.steam.SteamProfileException.Reason;
  * (without overriding anything the user said) and remembers what is owned so it is never recommended.
  */
 public class SteamLinkService {
-    /** What a link or refresh did, for showing to the user. */
-    public record LinkResult(SteamLink link, int libraryCount, double totalHours, List<OwnedGame> topPlayed,
-                             List<String> applied, List<String> warnings) {}
-
     private final SteamProfileSource source;
     private final SteamLibraryAnalyzer analyzer;
     private final ProfileManager profiles;
@@ -36,7 +33,7 @@ public class SteamLinkService {
     }
 
     /** @param input a profile link, 17-digit Steam ID or custom URL name */
-    public LinkResult link(String input) throws SteamProfileException {
+    public SteamLinkResult link(String input) throws SteamProfileException {
         SteamProfileRef ref = SteamProfileRef.parse(input);
         SteamLibrary fetched = source.fetchLibrary(ref);
         // Tools and extras (dedicated servers, SDKs, wallpaper apps...) would only distort counts and "most played".
@@ -67,11 +64,11 @@ public class SteamLinkService {
         profiles.linkSteam(link, lib.games());
 
         double total = lib.games().stream().mapToDouble(OwnedGame::hours).sum();
-        return new LinkResult(link, lib.games().size(), total, profiles.profile().mostPlayed(5), applied, warnings);
+        return new SteamLinkResult(link, lib.games().size(), total, profiles.profile().mostPlayed(5), applied, warnings);
     }
 
     /** Re-reads the already linked profile (new games, new playtime). */
-    public LinkResult refresh() throws SteamProfileException {
+    public SteamLinkResult refresh() throws SteamProfileException {
         SteamLink link = current().orElseThrow(() -> new SteamProfileException(Reason.INVALID_INPUT,
                 "No Steam profile is linked yet. Use /steam <profile link> first."));
         return link(link.profileUrl());

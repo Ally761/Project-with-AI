@@ -1,5 +1,7 @@
 package gameagent.agent;
 
+import gameagent.model.RefinementAnswer;
+import gameagent.model.ApplyResult;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -19,8 +21,6 @@ import gameagent.util.JsonException;
  * then has the LLM turn the user's free-text answers into profile updates.
  */
 public class RefinementService {
-    public record QA(String question, String answer) {}
-
     private final ProfileManager profiles;
     private final LLMClient llm;
 
@@ -43,13 +43,13 @@ public class RefinementService {
         }
     }
 
-    public ProfileManager.ApplyResult interpret(List<QA> answers) throws LLMException {
+    public ApplyResult interpret(List<RefinementAnswer> answers) throws LLMException {
         StringBuilder qa = new StringBuilder();
-        for (QA a : answers) {
+        for (RefinementAnswer a : answers) {
             if (a.answer() == null || a.answer().isBlank()) continue;
             qa.append("Q: ").append(a.question()).append("\nA: ").append(a.answer().trim()).append("\n\n");
         }
-        if (qa.length() == 0) return new ProfileManager.ApplyResult(List.of(), List.of());
+        if (qa.length() == 0) return new ApplyResult(List.of(), List.of());
         String raw = llm.complete(LLMRequest.json(PromptBuilder.interpretSystem(),
                 PromptBuilder.refinementInterpretUser(profiles.profile().toPromptSummary(), qa.toString())));
         Map<String, Object> json;

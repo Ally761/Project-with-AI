@@ -85,7 +85,7 @@ within roughly a minute, rather than a silent wait. Set `LLM_MODEL` / `LLM_FALLB
 ```
 cli/        CliApp, Command objects            -> talk only to AgentController
 agent/      AgentController (Facade), ChatAgent (tool loop), Tools, FeedbackService, RefinementService
-recommend/  RecommendationStrategy (Personalized, Curveball, Friends), RecommendationFactory, GameCatalog
+recommend/  RecommendationStrategy (Personalized, Curveball, Friends), Recommender (Factory Method creators), GameCatalog
 friends/    FriendService (friends list), FriendRoster (read-only view for strategies)
 profile/    UserProfile, ProfileManager (+ listeners), JSON persistence
 news/       NewsSource (RSS adapter), NewsService
@@ -102,7 +102,8 @@ llm/        LLMClient (Gemini, OpenAI-compatible), ResilientLLMClient, PromptBui
 | Strategy | `RecommendationStrategy` / `PersonalizedStrategy`, `CurveballStrategy`, `FriendsStrategy` | Different recommendation algorithms behind one interface |
 | Strategy (3) | `PlaytimeStrategy` / `GeneralPlaytimeStrategy`, `PacePlaytimeStrategy` | Typical time as is, or scaled to the user's own pace when enough history exists |
 | Strategy (2) | `SchedulingStrategy` / `FocusScheduling`, `VarietyScheduling` | Finish games one at a time, or rotate between them, behind one interface |
-| Factory | `RecommendationFactory`, `LLMClientFactory` | Central construction of strategies / LLM clients |
+| Factory Method | `Recommender` (abstract creator with `createStrategy()`), `PersonalizedRecommender`, `CurveballRecommender`, `FriendsRecommender` | Each creator decides which `RecommendationStrategy` to build; the shared run-and-record step lives in the creator |
+| Simple factory | `LLMClientFactory` | Builds the configured LLM client (and fallback chain) from settings |
 | Observer | `ProfileManager` -> `ProfileListener` (`AutoSaveListener`, `GameCatalog`, `NewsService`, `CalendarService`) | Profile changes automatically save, flag the catalogue and calendar as out of date and drop cached news rankings |
 | Adapter | `SteamStoreAdapter`, `SteamCommunityAdapter`, `RssNewsSource`, `IgdbGameLengthSource` | Third-party formats are converted to our `Game` / `NewsItem` |
 | Decorator | `ResilientLLMClient` | Adds throttling and retry/backoff to any LLM client |

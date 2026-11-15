@@ -1,6 +1,6 @@
 package gameagent.cli.commands;
 
-import gameagent.agent.FeedbackService;
+import gameagent.model.FeedbackResult;
 import gameagent.cli.CliContext;
 
 class RateCommand extends BaseCommand {
@@ -23,7 +23,7 @@ class RateCommand extends BaseCommand {
             return;
         }
         try {
-            FeedbackService.Result r = ctx.agent().submitFeedback(parts[0].trim(), rating, parts.length > 2 ? parts[2] : "");
+            FeedbackResult r = ctx.agent().submitFeedback(parts[0].trim(), rating, parts.length > 2 ? parts[2] : "");
             ctx.println("Saved your " + rating + "/5 for " + parts[0].trim() + ".");
             r.changes().forEach(s -> ctx.println("  + " + s));
             r.warnings().forEach(s -> ctx.println("  Note: " + s));

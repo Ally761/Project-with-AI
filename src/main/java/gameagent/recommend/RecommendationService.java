@@ -2,36 +2,31 @@ package gameagent.recommend;
 
 import gameagent.model.Recommendation;
 
-/** Runs a strategy chosen through the factory and records the outcome in the catalogue. */
+/** Entry point for the kinds of recommendation: each is delegated to its {@link Recommender} (Factory Method creators). */
 public class RecommendationService {
-    private final RecommendationFactory factory;
+    private final Recommender personalized;
+    private final Recommender curveball;
+    private final Recommender friends;
     private final GameCatalog catalog;
 
-    public RecommendationService(RecommendationFactory factory, GameCatalog catalog) {
-        this.factory = factory;
+    public RecommendationService(Recommender personalized, Recommender curveball, Recommender friends, GameCatalog catalog) {
+        this.personalized = personalized;
+        this.curveball = curveball;
+        this.friends = friends;
         this.catalog = catalog;
     }
 
     public RecommendationResult personalized(String query, int count) throws RecommendationException {
-        RecommendationResult r = factory.create(RecommendationFactory.Type.PERSONALIZED)
-                .recommend(RecommendationRequest.of(query, count));
-        catalog.addAll(r.recommendations(), true);
-        return r;
+        return personalized.recommend(RecommendationRequest.of(query, count));
     }
 
     public RecommendationResult curveball(String hint) throws RecommendationException {
-        RecommendationResult r = factory.create(RecommendationFactory.Type.CURVEBALL)
-                .recommend(RecommendationRequest.of(hint, 2));
-        catalog.addAll(r.recommendations(), false);
-        return r;
+        return curveball.recommend(RecommendationRequest.of(hint, 2));
     }
 
     /** @param friend a friend's name, or blank to use everyone on the list */
     public RecommendationResult fromFriends(String friend, int count) throws RecommendationException {
-        RecommendationResult r = factory.create(RecommendationFactory.Type.FRIENDS)
-                .recommend(RecommendationRequest.of("", count, friend));
-        catalog.addAll(r.recommendations(), false);
-        return r;
+        return friends.recommend(RecommendationRequest.of("", count, friend));
     }
 
     public GameCatalog catalog() { return catalog; }

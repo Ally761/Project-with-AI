@@ -1,8 +1,8 @@
 package gameagent.cli.commands;
 
+import gameagent.model.ApplyResult;
 import gameagent.cli.CliContext;
 import gameagent.profile.ConflictResolver;
-import gameagent.profile.ProfileManager;
 import gameagent.profile.ProfileUpdate;
 
 class NoteCommand extends BaseCommand {
@@ -16,7 +16,7 @@ class NoteCommand extends BaseCommand {
             ctx.println("Usage: " + usage());
             return;
         }
-        ProfileManager.ApplyResult r = ctx.agent().updateProfile(new ProfileUpdate("user").note(args), ConflictResolver.KEEP_EXISTING);
+        ApplyResult r = ctx.agent().updateProfile(new ProfileUpdate("user").note(args), ConflictResolver.KEEP_EXISTING);
         r.applied().forEach(s -> ctx.println("  + " + s));
         r.skipped().forEach(s -> ctx.println("  - " + s));
     }

@@ -1,5 +1,6 @@
 package gameagent.profile;
 
+import gameagent.model.ApplyResult;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -20,11 +21,6 @@ import gameagent.model.SteamLink;
 public class ProfileManager {
     private static final int MAX_LOG = 500;
     private static final int MAX_SHOWN = 200;
-
-    /** What actually happened when an update was applied (for showing the user). */
-    public record ApplyResult(List<String> applied, List<String> skipped) {
-        public boolean changedAnything() { return !applied.isEmpty(); }
-    }
 
     private UserProfile profile;
     private final List<ProfileListener> listeners = new CopyOnWriteArrayList<>();

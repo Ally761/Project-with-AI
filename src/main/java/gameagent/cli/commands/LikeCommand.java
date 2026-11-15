@@ -1,9 +1,9 @@
 package gameagent.cli.commands;
 
+import gameagent.model.ApplyResult;
 import gameagent.cli.CliContext;
 import gameagent.profile.Category;
 import gameagent.profile.ConflictResolver;
-import gameagent.profile.ProfileManager;
 import gameagent.profile.ProfileUpdate;
 import gameagent.profile.Sentiment;
 
@@ -35,7 +35,7 @@ class LikeCommand extends BaseCommand {
                 + (incoming == Sentiment.LIKE ? "liking" : "disliking") + " it?")
                 ? ConflictResolver.Resolution.USE_NEW : ConflictResolver.Resolution.KEEP_EXISTING;
 
-        ProfileManager.ApplyResult r = ctx.agent().updateProfile(u, ask);
+        ApplyResult r = ctx.agent().updateProfile(u, ask);
         r.applied().forEach(s -> ctx.println("  + " + s));
         r.skipped().forEach(s -> ctx.println("  - " + s));
     }
