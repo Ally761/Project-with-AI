@@ -32,6 +32,7 @@ import gameagent.llm.OpenAICompatibleClient;
 import gameagent.llm.ResilientLLMClient;
 import gameagent.model.Game;
 import gameagent.model.NewsItem;
+import gameagent.model.OwnedGame;
 import gameagent.model.Recommendation;
 import gameagent.news.NewsResult;
 import gameagent.news.NewsSource;
@@ -43,6 +44,10 @@ import gameagent.profile.ProfileUpdate;
 import gameagent.profile.Sentiment;
 import gameagent.recommend.RecommendationException;
 import gameagent.recommend.RecommendationResult;
+import gameagent.steam.SteamCommunityAdapter;
+import gameagent.steam.SteamLinkService;
+import gameagent.steam.SteamProfileException;
+import gameagent.steam.SteamProfileRef;
 import gameagent.util.Json;
 
 /** Dependency-free test runner. Run with test.bat / test.sh (see README). */
@@ -85,7 +90,11 @@ public class AllTests {
     static Path tmp() throws Exception { return Files.createTempDirectory("gameagent-test"); }
 
     static AgentController controller(Fakes.ScriptedLLM llm, Fakes.FakeSteam steam, List<NewsSource> news, Path dir) {
-        return AppContext.build(llm, new SteamStoreAdapter(steam, "US"), news, dir);
+        return controller(llm, steam, new Fakes.FakeCommunity(), news, dir);
+    }
+
+    static AgentController controller(Fakes.ScriptedLLM llm, Fakes.FakeSteam steam, Fakes.FakeCommunity community, List<NewsSource> news, Path dir) {
+        return AppContext.build(llm, new SteamStoreAdapter(steam, "US"), new SteamCommunityAdapter(community), news, dir);
     }
 
     static List<NewsSource> rssNews() {
@@ -458,6 +467,178 @@ public class AllTests {
             check(c.profile().notes().stream().anyMatch(n -> n.contains("45")), "note stored");
         });
 
+        System.out.println("Steam profile link");
+        test("steam link input: links, ids and names parse; other hosts and junk are rejected", () -> {
+            eq("/id/hadesfan", SteamProfileRef.parse("https://steamcommunity.com/id/hadesfan/").communityPath(), "https link");
+            eq("/id/hadesfan", SteamProfileRef.parse("steamcommunity.com/id/hadesfan/games/?tab=all").communityPath(), "no scheme, extra path");
+            eq("/profiles/76561198000000001", SteamProfileRef.parse("http://www.steamcommunity.com/profiles/76561198000000001").communityPath(), "numeric link");
+            eq("/profiles/76561198000000001", SteamProfileRef.parse("76561198000000001").communityPath(), "bare id");
+            eq("/id/hadesfan", SteamProfileRef.parse("hadesfan").communityPath(), "bare name");
+            eq("/id/x_y-z", SteamProfileRef.parse("  <https://steamcommunity.com/id/x_y-z>  ").communityPath(), "wrapped in brackets");
+            for (String bad : new String[]{"", "   ", "https://evil.com/id/hadesfan", "https://steamcommunity.com.evil.com/id/x",
+                    "https://steamcommunity.com/profiles/123", "bad name!", "https://store.steampowered.com/app/1145360", "https://steamcommunity.com/groups/abc"}) {
+                try {
+                    SteamProfileRef.parse(bad);
+                    throw new AssertionError("should have been rejected: " + bad);
+                } catch (SteamProfileException e) {
+                    eq(SteamProfileException.Reason.INVALID_INPUT, e.reason(), "reason for <" + bad + ">");
+                }
+            }
+        });
+        test("steam community adapter: reads the profile feed (commas, CDATA, duplicates) and explains every failure", () -> {
+            Fakes.FakeCommunity fc = new Fakes.FakeCommunity();
+            SteamCommunityAdapter a = new SteamCommunityAdapter(fc);
+            var lib = a.fetchLibrary(SteamProfileRef.parse("https://steamcommunity.com/id/hadesfan"));
+            eq(Fakes.FakeCommunity.ID, lib.steamId(), "steam id");
+            eq("Hades Fan", lib.personaName(), "display name");
+            eq(6, lib.games().size(), "duplicate app row dropped");
+            check(!lib.complete(), "only the most-played list is visible without signing in");
+            OwnedGame hk = lib.games().get(0);
+            eq("Hollow Knight", hk.name(), "first game");
+            check(Math.abs(hk.hours() - 1034.2) < 1e-9, "thousands separator parsed: " + hk.hours());
+            check(Math.abs(hk.hoursRecent() - 3.5) < 1e-9, "recent hours");
+            eq(367520L, hk.appId(), "app id taken from the game link");
+            check(fc.urls.size() == 1 && fc.urls.get(0).endsWith("/id/hadesfan/?xml=1"), "one request to the public profile feed: " + fc.urls);
+
+            String[][] failures = {
+                    {"privateguy", "PROFILE_PRIVATE", "Privacy Settings"},
+                    {"hiddengames", "GAMES_PRIVATE", "Game details"},
+                    {"nobody", "NOT_FOUND", "couldn't find"},
+            };
+            for (String[] f : failures) {
+                try {
+                    a.fetchLibrary(SteamProfileRef.parse(f[0]));
+                    throw new AssertionError("expected failure for " + f[0]);
+                } catch (SteamProfileException e) {
+                    eq(f[1], e.reason().name(), "reason for " + f[0]);
+                    check(e.getMessage().contains(f[2]), "message tells the user what to do: " + e.getMessage());
+                }
+            }
+            fc.rateLimited = true;
+            try { a.fetchLibrary(SteamProfileRef.parse("hadesfan")); throw new AssertionError("rate limit"); }
+            catch (SteamProfileException e) { eq(SteamProfileException.Reason.UNAVAILABLE, e.reason(), "429"); check(e.getMessage().contains("rate-limiting"), e.getMessage()); }
+            fc.rateLimited = false;
+            fc.down = true;
+            try { a.fetchLibrary(SteamProfileRef.parse("hadesfan")); throw new AssertionError("outage"); }
+            catch (SteamProfileException e) { eq(SteamProfileException.Reason.UNAVAILABLE, e.reason(), "outage"); }
+            try { new SteamCommunityAdapter(url -> "<html><body>Sorry!</body></html>").fetchLibrary(SteamProfileRef.parse("hadesfan")); throw new AssertionError("garbage"); }
+            catch (SteamProfileException e) { eq(SteamProfileException.Reason.UNREADABLE, e.reason(), "not xml"); check(e.getMessage().contains("web page"), "says what came back: " + e.getMessage()); }
+        });
+        test("steam link: imports most-played games and shared genres, never overrides the user, refresh adds nothing twice", () -> {
+            AgentController c = controller(new Fakes.ScriptedLLM(Fakes::smartScript), new Fakes.FakeSteam(), List.of(), tmp());
+            c.updateProfile(new ProfileUpdate("user").dislike(Category.GAME, "Counter-Strike 2").dislike(Category.GENRE, "Indie"), ConflictResolver.NEWEST_WINS);
+            var r = c.linkSteam("https://steamcommunity.com/id/hadesfan");
+            eq(5, r.libraryCount(), "games read (tools such as Wallpaper Engine are not counted)");
+            eq("Hades Fan", r.link().personaName(), "persona");
+            eq("Hollow Knight", r.topPlayed().get(0).name(), "most played first");
+            for (String liked : new String[]{"Hollow Knight", "Hades", "Celeste"}) {
+                var p = c.profile().find(Category.GAME, liked);
+                check(p.isPresent() && p.get().sentiment() == Sentiment.LIKE && p.get().source().equals("steam"), "liked from playtime: " + liked);
+                check(Math.abs(p.get().weight() - 2.5) < 1e-9, "steam weight 2.5 for " + liked);
+            }
+            for (String not : new String[]{"Dead Cells", "Wallpaper Engine"}) {
+                check(c.profile().find(Category.GAME, not).isEmpty(), "barely played / not a game is not a taste: " + not);
+            }
+            check(c.profile().find(Category.GAME, "Counter-Strike 2").get().sentiment() == Sentiment.DISLIKE, "user's dislike of a played game stays");
+            check(c.profile().find(Category.GENRE, "Action").map(p -> p.sentiment() == Sentiment.LIKE && p.source().equals("steam")).orElse(false), "shared genre liked");
+            check(c.profile().find(Category.GENRE, "Indie").get().sentiment() == Sentiment.DISLIKE, "user's genre dislike stays");
+            check(c.profile().find(Category.GENRE, "Adventure").isEmpty(), "one-off genre is not a taste");
+            check(c.profile().find(Category.GENRE, "Free To Play").isEmpty(), "store label ignored");
+            check(r.applied().stream().anyMatch(x -> x.contains("Hollow Knight")), "result lists what was added");
+            check(r.warnings().stream().anyMatch(w -> w.contains("most-played")), "user is told only the most-played games are visible: " + r.warnings());
+            check(!c.profile().owns("Wallpaper Engine") && r.topPlayed().stream().noneMatch(g -> g.name().equals("Wallpaper Engine")), "tools are not part of the library");
+            check(Math.abs(r.totalHours() - 1300.2) < 1e-6, "hours exclude tools: " + r.totalHours());
+
+            var again = c.refreshSteam();
+            check(again.applied().isEmpty(), "refresh adds nothing new: " + again.applied());
+            check(Math.abs(c.profile().find(Category.GAME, "Hades").get().weight() - 2.5) < 1e-9, "weights are not inflated by refresh");
+            check(c.profile().log().stream().anyMatch(e -> e.type().equals("steam")), "link logged");
+        });
+        test("steam library: owned games are never recommended; link survives a restart", () -> {
+            Path dir = tmp();
+            Fakes.ScriptedLLM llm = new Fakes.ScriptedLLM(Fakes::smartScript);
+            AgentController c = controller(llm, new Fakes.FakeSteam(), List.of(), dir);
+            c.linkSteam("hadesfan");
+            RecommendationResult res = c.recommend("fast combat", 3);
+            List<String> names = res.recommendations().stream().map(x -> x.game().name()).toList();
+            check(names.contains("Risk of Rain 2"), "unowned game still recommended: " + names);
+            for (String owned : new String[]{"Dead Cells", "Hollow Knight", "Hades"}) check(!names.contains(owned), "owned game excluded: " + owned);
+            String avoid = llm.requests.stream().filter(r -> r.systemPrompt().contains("You suggest REAL")).map(Fakes::lastUser)
+                    .flatMap(u -> java.util.Arrays.stream(u.split("\n"))).filter(l -> l.startsWith("Do NOT suggest")).findFirst().orElse("");
+            check(avoid.contains("Dead Cells"), "the AI is told not to suggest owned games: " + avoid);
+            check(c.profile().toPromptSummary().contains("Steam profile (linked), most played: Hollow Knight (1034 h)"), "AI sees the most-played summary: " + c.profile().toPromptSummary());
+
+            AgentController again = controller(llm, new Fakes.FakeSteam(), List.of(), dir); // new process, same data folder
+            check(again.profile().steamLink().isPresent(), "link persisted");
+            eq("Hades Fan", again.profile().steamLink().get().personaName(), "persona persisted");
+            eq(5, again.profile().ownedGames().size(), "library persisted");
+            check(again.profile().owns("hollow knight™"), "ownership check ignores case and trademark signs");
+            check(Math.abs(again.profile().ownedGames().get(0).hours() - 1034.2) < 1e-9, "hours persisted");
+        });
+        test("steam unlink: forgets the library; removes only imported tastes when asked", () -> {
+            AgentController c = controller(new Fakes.ScriptedLLM(Fakes::smartScript), new Fakes.FakeSteam(), List.of(), tmp());
+            c.updateProfile(new ProfileUpdate("user").like(Category.GAME, "Celeste"), ConflictResolver.NEWEST_WINS);
+            c.linkSteam("hadesfan");
+            List<String> kept = c.unlinkSteam(false);
+            check(kept.isEmpty() && c.profile().steamLink().isEmpty() && c.profile().ownedGames().isEmpty(), "unlinked, nothing removed");
+            check(c.profile().find(Category.GAME, "Hades").isPresent(), "imported taste kept when not asked to remove");
+            check(!c.profile().owns("Hades"), "no longer treated as owned");
+
+            c.linkSteam("hadesfan");
+            List<String> removed = c.unlinkSteam(true);
+            check(removed.stream().anyMatch(x -> x.contains("Hades")), "imported taste removed: " + removed);
+            check(c.profile().find(Category.GAME, "Hades").isEmpty(), "Hades gone");
+            check(c.profile().find(Category.GAME, "Celeste").map(p -> p.source().equals("user")).orElse(false), "what the user said is kept");
+        });
+        test("steam link: store outage still links the library (no genres), hidden playtime imports no tastes, private profile is explained", () -> {
+            Fakes.FakeSteam store = new Fakes.FakeSteam();
+            store.down = true;
+            AgentController c = controller(new Fakes.ScriptedLLM(Fakes::smartScript), store, List.of(), tmp());
+            var r = c.linkSteam("hadesfan");
+            check(r.warnings().stream().anyMatch(w -> w.contains("store was unreachable")), "genre analysis skipped with a warning: " + r.warnings());
+            check(c.profile().find(Category.GAME, "Hades").isPresent(), "games still imported");
+            check(c.profile().preferences(Category.GENRE, Sentiment.LIKE).isEmpty(), "no genres without store data");
+
+            SteamLinkService hidden = new SteamLinkService(ref -> new gameagent.steam.SteamLibrary("76561198000000009", "Shy",
+                    List.of(new OwnedGame(1, "Alpha", 0, 0), new OwnedGame(2, "Beta", 0, 0)), false),
+                    new SteamStoreAdapter(new Fakes.FakeSteam(), "US"), new ProfileManager(new gameagent.profile.UserProfile()));
+            var h = hidden.link("shy");
+            check(h.applied().isEmpty() && h.warnings().stream().anyMatch(w -> w.contains("Playtime")), "hidden playtime explained: " + h.warnings());
+            eq(2, h.libraryCount(), "library still recorded");
+
+            try { c.linkSteam("privateguy"); throw new AssertionError("private profile"); }
+            catch (SteamProfileException e) { eq(SteamProfileException.Reason.PROFILE_PRIVATE, e.reason(), "private"); }
+            try { c.refreshSteam(); } catch (SteamProfileException e) { throw new AssertionError("refresh of linked profile should work: " + e.getMessage()); }
+            c.unlinkSteam(false);
+            try { c.refreshSteam(); throw new AssertionError("refresh without link"); }
+            catch (SteamProfileException e) { check(e.getMessage().contains("No Steam profile is linked"), e.getMessage()); }
+        });
+        test("chat: the agent links a Steam profile pasted in conversation, and relays a private-profile error", () -> {
+            AtomicReference<String> toolResultSeen = new AtomicReference<>("");
+            Fakes.ScriptedLLM llm = new Fakes.ScriptedLLM(r -> {
+                String user = Fakes.lastUser(r);
+                if (!r.systemPrompt().contains("You are GameAgent")) return "{}";
+                if (user.startsWith("TOOL_RESULT link_steam")) {
+                    toolResultSeen.set(user);
+                    return "{\"tool\":null,\"reply\":\"Done with that.\"}";
+                }
+                if (user.contains("privateguy")) return "{\"tool\":\"link_steam\",\"args\":{\"profile\":\"https://steamcommunity.com/id/privateguy\"}}";
+                if (user.contains("steamcommunity.com")) return "{\"tool\":\"link_steam\",\"args\":{\"profile\":\"https://steamcommunity.com/id/hadesfan\"}}";
+                return "{\"tool\":null,\"reply\":\"ok\"}";
+            });
+            AgentController c = controller(llm, new Fakes.FakeSteam(), List.of(), tmp());
+            AgentReply reply = c.chat("my steam is https://steamcommunity.com/id/hadesfan");
+            eq(List.of("link_steam"), reply.context().toolsUsed, "tool used");
+            check(!reply.context().profileChanges.isEmpty(), "changes reported to the UI");
+            check(c.profile().steamLink().isPresent(), "linked through chat");
+            check(llm.requests.get(0).systemPrompt().contains("link_steam"), "tool is described to the model");
+            check(toolResultSeen.get().contains("Hollow Knight (1034 h)"), "model gets a short summary: " + toolResultSeen.get());
+
+            c.chat("also try https://steamcommunity.com/id/privateguy");
+            check(toolResultSeen.get().contains("ERROR") && toolResultSeen.get().contains("Privacy Settings"), "error with instructions goes back to the model: " + toolResultSeen.get());
+            eq("Hades Fan", c.profile().steamLink().get().personaName(), "failed link leaves the existing link alone");
+        });
+
         System.out.println("CLI (scripted session)");
         test("cli: full session through slash commands and chat", () -> {
             Fakes.ScriptedLLM llm = new Fakes.ScriptedLLM(Fakes::smartScript);
@@ -497,8 +678,38 @@ public class AllTests {
             check(c.profile().find(Category.GENRE, "Roguelike").map(p -> p.sentiment() == Sentiment.DISLIKE).orElse(false), "user chose to flip (answered y)");
             check(c.profile().find(Category.GENRE, "Strategy").isEmpty(), "forget worked");
         });
+        test("cli: /steam links, shows status, top games, refresh, bad input and unlink", () -> {
+            AgentController c = controller(new Fakes.ScriptedLLM(Fakes::smartScript), new Fakes.FakeSteam(), List.of(), tmp());
+            String input = String.join("\n",
+                    "/steam",
+                    "/steam https://steamcommunity.com/id/hadesfan",
+                    "/steam",
+                    "/steam top",
+                    "/profile",
+                    "/steam refresh",
+                    "/steam bad link!",
+                    "/steam privateguy",
+                    "/steam unlink",
+                    "y",
+                    "y",
+                    "/steam",
+                    "/quit", "");
+            ByteArrayOutputStream buf = new ByteArrayOutputStream();
+            new CliApp(c, new BufferedReader(new StringReader(input)), new PrintStream(buf, true, StandardCharsets.UTF_8)).run();
+            String out = buf.toString(StandardCharsets.UTF_8);
+            System.out.println("    ---- CLI transcript (excerpt) ----");
+            for (String line : out.split("\n")) System.out.println("    | " + line);
+            for (String must : new String[]{"No Steam profile linked", "Linked Hades Fan: read 5 games", "Most played: Hollow Knight (1034 h)",
+                    "Added to your profile from your playtime", "Games I know you own won't be recommended", " 1. Hollow Knight", "Steam: linked to Hades Fan",
+                    "No new tastes to add", "That doesn't look like a Steam profile link", "isn't public", "Steam profile unlinked. Removed"}) {
+                check(out.contains(must), "CLI output should contain: " + must);
+            }
+            check(c.profile().steamLink().isEmpty(), "unlinked at the end");
+            check(c.profile().find(Category.GAME, "Hades").isEmpty(), "imported tastes removed (answered y)");
+        });
         test("cli: without API key the app still starts and profile commands work", () -> {
-            AgentController c = AppContext.build(gameagent.llm.LLMClientFactory.create(new AppConfig(Map.of())), new SteamStoreAdapter(new Fakes.FakeSteam(), "US"), List.of(), tmp());
+            AgentController c = AppContext.build(gameagent.llm.LLMClientFactory.create(new AppConfig(Map.of())), new SteamStoreAdapter(new Fakes.FakeSteam(), "US"),
+                    new SteamCommunityAdapter(new Fakes.FakeCommunity()), List.of(), tmp());
             ByteArrayOutputStream buf = new ByteArrayOutputStream();
             new CliApp(c, new BufferedReader(new StringReader("/like game Celeste\nhello there\n/recommend\n/profile\n/quit\n")), new PrintStream(buf, true, StandardCharsets.UTF_8)).run();
             String out = buf.toString(StandardCharsets.UTF_8);
@@ -506,6 +717,8 @@ public class AllTests {
             check(out.contains("AI service problem: No LLM API key configured"), "chat error is friendly");
             check(out.contains("Celeste"), "profile works offline");
         });
+
+        PatternGuards.run();
 
         System.out.println("\n" + passed + " passed, " + failed + " failed");
         failures.forEach(f -> System.out.println("FAILED: " + f));

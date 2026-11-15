@@ -50,6 +50,7 @@ public class CurveballStrategy implements RecommendationStrategy {
         }
         List<String> avoid = new ArrayList<>();
         for (Preference p : profiles.profile().preferences()) if (p.category() == Category.GAME) avoid.add(p.name());
+        for (var g : profiles.profile().mostPlayed(30)) avoid.add(g.name());
         List<String> shown = new ArrayList<>(profiles.profile().shownGames());
         avoid.addAll(shown.subList(Math.max(0, shown.size() - 20), shown.size()));
 
@@ -84,10 +85,12 @@ public class CurveballStrategy implements RecommendationStrategy {
     }
 
     private Game resolvePopular(String name, List<Game> trending, List<String> avoid, List<String> warnings) {
-        for (Game g : trending) if (Names.norm(g.name()).equals(Names.norm(name))) return enrich(g);
+        for (Game g : trending) {
+            if (Names.norm(g.name()).equals(Names.norm(name)) && !profiles.profile().owns(g.name())) return enrich(g);
+        }
         // The model strayed from the list: fall back to the first trending game the user hasn't seen or disliked.
         for (Game g : trending) {
-            boolean skip = avoid.stream().anyMatch(a -> Names.norm(a).equals(Names.norm(g.name())));
+            boolean skip = profiles.profile().owns(g.name()) || avoid.stream().anyMatch(a -> Names.norm(a).equals(Names.norm(g.name())));
             boolean disliked = profiles.profile().find(Category.GAME, g.name())
                     .map(p -> p.sentiment() == Sentiment.DISLIKE).orElse(false);
             if (!skip && !disliked) return enrich(g);

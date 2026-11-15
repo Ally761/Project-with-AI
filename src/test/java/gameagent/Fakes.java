@@ -154,6 +154,58 @@ final class Fakes {
         }
     }
 
+    /**
+     * Pretends to be steamcommunity.com. The profile feed copies the layout Steam really serves (checked against a live
+     * public profile): profile fields plus a short mostPlayedGames list. Like the real site it sends anonymous visitors
+     * to the login page for the full games list, so only the profile feed is offered here.
+     */
+    static class FakeCommunity implements HttpFetcher {
+        static final String ID = "76561198000000001";
+        boolean down = false;
+        boolean rateLimited = false;
+        final List<String> urls = new ArrayList<>();
+
+        static String profile(String id, String persona, String privacy, String mostPlayed) {
+            return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><profile>\n\t<steamID64>" + id + "</steamID64>\n"
+                    + "\t<steamID><![CDATA[" + persona + "]]></steamID>\n\t<onlineState>offline</onlineState>\n"
+                    + "\t<stateMessage><![CDATA[Offline]]></stateMessage>\n\t<privacyState>" + privacy + "</privacyState>\n"
+                    + "\t<visibilityState>" + ("public".equals(privacy) ? 3 : 1) + "</visibilityState>\n"
+                    + "\t<customURL><![CDATA[" + persona + "]]></customURL>\n\t<hoursPlayed2Wk>0.0</hoursPlayed2Wk>\n"
+                    + "\t<summary><![CDATA[]]></summary>\n"
+                    + (mostPlayed.isEmpty() ? "" : " \t<mostPlayedGames>\n" + mostPlayed + "\t</mostPlayedGames>\n") + "\n</profile>\n";
+        }
+
+        static String game(long id, String name, String total, String recent) {
+            return "\t\t<mostPlayedGame>\n\t\t\t<gameName><![CDATA[" + name + "]]></gameName>\n"
+                    + "\t\t\t<gameLink><![CDATA[https://steamcommunity.com/app/" + id + "]]></gameLink>\n"
+                    + "\t\t\t<gameIcon><![CDATA[https://shared.example/" + id + ".jpg]]></gameIcon>\n"
+                    + "\t\t\t<hoursPlayed>" + recent + "</hoursPlayed>\n\t\t\t<hoursOnRecord>" + total + "</hoursOnRecord>\n"
+                    + "\t\t\t<statsName><![CDATA[" + id + "]]></statsName>\n\t\t</mostPlayedGame>\n";
+        }
+
+        static final String MOST_PLAYED = game(367520, "Hollow Knight", "1,034.2", "3.5")
+                + game(1145360, "Hades", "212.5", "0.0")
+                + game(504230, "Celeste", "40", "0.0")
+                + game(730, "Counter-Strike 2", "12", "10")
+                + game(588650, "Dead Cells", "1.5", "0.0")
+                + game(431960, "Wallpaper Engine", "300", "0.1")
+                + game(367520, "Hollow Knight (duplicate row)", "5", "0.0");
+
+        @Override
+        public String get(String url) throws IOException {
+            urls.add(url);
+            if (rateLimited) throw new IOException("HTTP 429 from steamcommunity.com");
+            if (down) throw new IOException("connect timed out");
+            if (url.contains("/id/hadesfan/?xml=1") || url.contains("/profiles/" + ID + "/?xml=1")) return profile(ID, "Hades Fan", "public", MOST_PLAYED);
+            if (url.contains("/id/privateguy/?xml=1")) return profile("76561198000000002", "Private Guy", "private", "");
+            if (url.contains("/id/hiddengames/?xml=1")) return profile("76561198000000003", "Hidden", "public", "");
+            if (url.contains("/id/nobody/?xml=1")) {
+                return "<?xml version=\"1.0\" encoding=\"UTF-8\"?><response><error><![CDATA[The specified profile could not be found.]]></error></response>";
+            }
+            throw new IOException("HTTP 404 from steamcommunity.com");
+        }
+    }
+
     static final String RSS = """
             <?xml version="1.0" encoding="UTF-8"?>
             <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><title>Test</title>

@@ -16,6 +16,12 @@ public interface GameDataSource {
     /** Best match for an exact title, with full details, or empty if the game cannot be found. */
     Optional<Game> findByName(String name) throws DataSourceException;
 
+    /**
+     * Full details for a game whose store id is already known (e.g. from a Steam library).
+     * Empty when the id is not a game in the catalogue.
+     */
+    Optional<Game> findByAppId(long appId, String name) throws DataSourceException;
+
     /** Currently popular games (top sellers). */
     List<Game> trending(int limit) throws DataSourceException;
 }

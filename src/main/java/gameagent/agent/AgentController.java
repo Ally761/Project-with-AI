@@ -19,6 +19,8 @@ import gameagent.recommend.GameCatalog;
 import gameagent.recommend.RecommendationException;
 import gameagent.recommend.RecommendationResult;
 import gameagent.recommend.RecommendationService;
+import gameagent.steam.SteamLinkService;
+import gameagent.steam.SteamProfileException;
 
 /**
  * Facade: the single entry point that user interfaces (CLI now, GUI later) talk to.
@@ -35,10 +37,11 @@ public class AgentController {
     private final FeedbackService feedback;
     private final RefinementService refinement;
     private final GameDataSource data;
+    private final SteamLinkService steam;
 
     public AgentController(LLMClient llm, ProfileManager profiles, ChatAgent chatAgent, ConversationMemory memory,
                            RecommendationService recommendations, NewsService news, FeedbackService feedback,
-                           RefinementService refinement, GameDataSource data) {
+                           RefinementService refinement, GameDataSource data, SteamLinkService steam) {
         this.llm = llm;
         this.profiles = profiles;
         this.chatAgent = chatAgent;
@@ -48,6 +51,7 @@ public class AgentController {
         this.feedback = feedback;
         this.refinement = refinement;
         this.data = data;
+        this.steam = steam;
     }
 
     public String modelName() { return llm.name(); }
@@ -101,6 +105,16 @@ public class AgentController {
     public ProfileManager.ApplyResult submitRefinement(List<RefinementService.QA> answers) throws LLMException {
         return refinement.interpret(answers);
     }
+
+    // ---- steam
+    /** Links a public Steam profile (link, 17-digit ID or custom URL name) and imports tastes from its library. */
+    public SteamLinkService.LinkResult linkSteam(String profile) throws SteamProfileException { return steam.link(profile); }
+
+    /** Re-reads the linked profile. */
+    public SteamLinkService.LinkResult refreshSteam() throws SteamProfileException { return steam.refresh(); }
+
+    /** Forgets the link and library; optionally removes the preferences that were imported from it. */
+    public List<String> unlinkSteam(boolean removeImported) { return steam.unlink(removeImported); }
 
     // ---- misc
     public Optional<Game> lookupGame(String name) throws DataSourceException { return data.findByName(name); }

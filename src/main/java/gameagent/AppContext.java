@@ -12,6 +12,7 @@ import gameagent.agent.RefinementService;
 import gameagent.agent.ToolRegistry;
 import gameagent.agent.tools.GetNewsTool;
 import gameagent.agent.tools.GetProfileTool;
+import gameagent.agent.tools.LinkSteamTool;
 import gameagent.agent.tools.RecommendGamesTool;
 import gameagent.agent.tools.SearchGamesTool;
 import gameagent.agent.tools.UpdatePreferencesTool;
@@ -30,6 +31,9 @@ import gameagent.profile.ProfileRepository;
 import gameagent.recommend.GameCatalog;
 import gameagent.recommend.RecommendationFactory;
 import gameagent.recommend.RecommendationService;
+import gameagent.steam.SteamCommunityAdapter;
+import gameagent.steam.SteamLinkService;
+import gameagent.steam.SteamProfileSource;
 import gameagent.util.JdkHttpFetcher;
 
 /** Composition root: the only place that wires concrete classes together. Tests call {@link #build} with fakes. */
@@ -45,10 +49,12 @@ public final class AppContext {
         JdkHttpFetcher http = new JdkHttpFetcher();
         List<NewsSource> sources = new ArrayList<>();
         for (AppConfig.FeedSpec f : cfg.newsFeeds()) sources.add(new RssNewsSource(f.name(), f.url(), http));
-        return build(LLMClientFactory.create(cfg, notifier), new SteamStoreAdapter(http, cfg.steamCountry()), sources, cfg.dataDir());
+        return build(LLMClientFactory.create(cfg, notifier), new SteamStoreAdapter(http, cfg.steamCountry()),
+                new SteamCommunityAdapter(http), sources, cfg.dataDir());
     }
 
-    public static AgentController build(LLMClient llm, GameDataSource data, List<NewsSource> newsSources, Path dataDir) {
+    public static AgentController build(LLMClient llm, GameDataSource data, SteamProfileSource steamProfiles,
+                                        List<NewsSource> newsSources, Path dataDir) {
         ProfileRepository repo = new JsonProfileRepository(dataDir.resolve("profile.json"));
         ProfileManager profiles = new ProfileManager(repo.load());
         GameCatalog catalog = new GameCatalog(dataDir.resolve("catalog.json"));
@@ -60,16 +66,18 @@ public final class AppContext {
         profiles.addListener(news);
 
         RecommendationService recs = new RecommendationService(new RecommendationFactory(llm, data, profiles), catalog);
+        SteamLinkService steam = new SteamLinkService(steamProfiles, data, profiles);
         ToolRegistry tools = new ToolRegistry()
                 .register(new UpdatePreferencesTool(profiles))
                 .register(new RecommendGamesTool(recs))
                 .register(new SearchGamesTool(data))
                 .register(new GetNewsTool(news))
-                .register(new GetProfileTool(profiles));
+                .register(new GetProfileTool(profiles))
+                .register(new LinkSteamTool(steam));
         ConversationMemory memory = new ConversationMemory(12);
         ChatAgent chat = new ChatAgent(llm, tools, profiles, memory);
 
         return new AgentController(llm, profiles, chat, memory, recs, news,
-                new FeedbackService(profiles, llm, data), new RefinementService(profiles, llm), data);
+                new FeedbackService(profiles, llm, data), new RefinementService(profiles, llm), data, steam);
     }
 }

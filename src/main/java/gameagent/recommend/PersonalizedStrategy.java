@@ -65,7 +65,7 @@ public class PersonalizedStrategy implements RecommendationStrategy {
             for (Object c : Json.list(o, "candidates")) {
                 Map<String, Object> m = c instanceof String ? Map.of("name", c) : Json.asObject(c);
                 String n = Json.str(m, "name");
-                if (n == null || n.isBlank() || known.contains(Names.norm(n))) continue;
+                if (n == null || n.isBlank() || known.contains(Names.norm(n)) || profile.owns(n)) continue;
                 candidateWhy.putIfAbsent(n.trim(), Json.str(m, "why", ""));
             }
         } catch (LLMException e) {
@@ -85,7 +85,7 @@ public class PersonalizedStrategy implements RecommendationStrategy {
             pool.addAll(out.unverified().stream().limit(req.count() - pool.size()).toList());
             if (!out.unverified().isEmpty()) warnings.add("Some titles could not be found in the Steam catalogue (e.g. console exclusives); they are marked unverified.");
         }
-        pool.removeIf(g -> known.contains(Names.norm(g.name())));
+        pool.removeIf(g -> known.contains(Names.norm(g.name())) || profile.owns(g.name()));
         if (pool.isEmpty()) throw new RecommendationException("No suitable games found. Try a different request.");
 
         // 3. rank + explain
@@ -132,7 +132,7 @@ public class PersonalizedStrategy implements RecommendationStrategy {
         return new RecommendationResult(result, warnings);
     }
 
-    /** Normalised titles the user already has an opinion on or has rated. */
+    /** Normalised titles the user already has an opinion on or has rated (owned games are checked separately). */
     private static Set<String> knownGameKeys(UserProfile p) {
         Set<String> keys = new HashSet<>();
         for (Preference pr : p.preferences()) if (pr.category() == Category.GAME) keys.add(Names.norm(pr.name()));
@@ -145,6 +145,7 @@ public class PersonalizedStrategy implements RecommendationStrategy {
         List<String> names = new ArrayList<>();
         for (Preference pr : p.preferences()) if (pr.category() == Category.GAME) names.add(pr.name());
         for (GameFeedback f : p.feedback()) names.add(f.gameName());
+        for (var g : p.mostPlayed(40)) names.add(g.name()); // owned games are filtered later too; this saves wasted candidates
         List<String> shown = new ArrayList<>(p.shownGames());
         names.addAll(shown.subList(Math.max(0, shown.size() - 30), shown.size()));
         return names.stream().distinct().toList();

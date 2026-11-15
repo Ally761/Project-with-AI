@@ -64,6 +64,12 @@ public class SteamStoreAdapter implements GameDataSource {
     }
 
     @Override
+    public Optional<Game> findByAppId(long appId, String name) throws DataSourceException {
+        if (appId <= 0) return Optional.empty();
+        return fetchDetails(new Game(name, appId, "", List.of(), "", "", storeUrl(appId), true));
+    }
+
+    @Override
     public List<Game> trending(int limit) throws DataSourceException {
         Map<String, Object> root = getObject(baseUrl + "/api/featuredcategories?l=english&cc=" + country);
         Map<String, Object> top = Json.obj(root, "top_sellers");
@@ -85,23 +91,28 @@ public class SteamStoreAdapter implements GameDataSource {
     /** Adds genres, description, release date and price from the appdetails endpoint. Failure keeps the basic game. */
     Game enrich(Game g) {
         try {
-            Map<String, Object> root = getObject(baseUrl + "/api/appdetails?appids=" + g.steamAppId() + "&l=english&cc=" + country);
-            Map<String, Object> entry = Json.obj(root, String.valueOf(g.steamAppId()));
-            if (!Json.bool(entry, "success", false)) return g;
-            Map<String, Object> data = Json.obj(entry, "data");
-            List<String> genres = new ArrayList<>();
-            for (Object o : Json.list(data, "genres")) {
-                String d = Json.str(Json.asObject(o), "description");
-                if (d != null) genres.add(d);
-            }
-            String price = g.price();
-            if (Json.bool(data, "is_free", false)) price = "Free";
-            else if (Json.obj(data, "price_overview") != null) price = Json.str(Json.obj(data, "price_overview"), "final_formatted", price);
-            return g.withDetails(Json.str(data, "short_description", ""), genres, price,
-                    Json.str(Json.obj(data, "release_date"), "date", ""));
+            return fetchDetails(g).orElse(g);
         } catch (DataSourceException e) {
             return g;
         }
+    }
+
+    /** One appdetails request; empty when the store reports no such app. */
+    private Optional<Game> fetchDetails(Game g) throws DataSourceException {
+        Map<String, Object> root = getObject(baseUrl + "/api/appdetails?appids=" + g.steamAppId() + "&l=english&cc=" + country);
+        Map<String, Object> entry = Json.obj(root, String.valueOf(g.steamAppId()));
+        if (!Json.bool(entry, "success", false)) return Optional.empty();
+        Map<String, Object> data = Json.obj(entry, "data");
+        List<String> genres = new ArrayList<>();
+        for (Object o : Json.list(data, "genres")) {
+            String d = Json.str(Json.asObject(o), "description");
+            if (d != null) genres.add(d);
+        }
+        String price = g.price();
+        if (Json.bool(data, "is_free", false)) price = "Free";
+        else if (Json.obj(data, "price_overview") != null) price = Json.str(Json.obj(data, "price_overview"), "final_formatted", price);
+        return Optional.of(g.withDetails(Json.str(data, "short_description", ""), genres, price,
+                Json.str(Json.obj(data, "release_date"), "date", "")));
     }
 
     // ---------------------------------------------------------------- helpers

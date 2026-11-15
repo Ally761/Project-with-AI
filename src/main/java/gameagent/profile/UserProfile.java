@@ -13,6 +13,9 @@ import java.util.stream.Collectors;
 
 import gameagent.model.GameFeedback;
 import gameagent.model.LogEntry;
+import gameagent.model.OwnedGame;
+import gameagent.model.SteamLink;
+import gameagent.util.Names;
 
 /**
  * The agent's long-term memory of the user: weighted likes/dislikes, free-text notes, game feedback,
@@ -25,6 +28,9 @@ public class UserProfile {
     private final List<GameFeedback> feedback = new ArrayList<>();
     private final List<LogEntry> log = new ArrayList<>();
     private final Set<String> shown = new LinkedHashSet<>();
+    private SteamLink steamLink;
+    private final List<OwnedGame> owned = new ArrayList<>();
+    private final Set<String> ownedKeys = new java.util.HashSet<>();
 
     static String key(Category c, String name) {
         return c + ":" + normalize(name);
@@ -61,8 +67,27 @@ public class UserProfile {
     public List<LogEntry> log() { return Collections.unmodifiableList(log); }
     public Set<String> shownGames() { return Collections.unmodifiableSet(shown); }
 
+    /** The linked public Steam profile, if any. */
+    public Optional<SteamLink> steamLink() { return Optional.ofNullable(steamLink); }
+
+    /** Games in the linked Steam library (empty when no profile is linked). */
+    public List<OwnedGame> ownedGames() { return Collections.unmodifiableList(owned); }
+
+    /** True if the title is in the linked Steam library (compared loosely: case, punctuation and trademark signs ignored). */
+    public boolean owns(String gameName) {
+        return !ownedKeys.isEmpty() && ownedKeys.contains(Names.norm(gameName));
+    }
+
+    /** Owned games, most played first. */
+    public List<OwnedGame> mostPlayed(int limit) {
+        return owned.stream()
+                .sorted((a, b) -> Double.compare(b.hours(), a.hours()))
+                .limit(limit)
+                .collect(Collectors.toList());
+    }
+
     public boolean isEmpty() {
-        return prefs.isEmpty() && notes.isEmpty() && feedback.isEmpty();
+        return prefs.isEmpty() && notes.isEmpty() && feedback.isEmpty() && steamLink == null;
     }
 
     /** Too little information to personalise well. */
@@ -94,6 +119,11 @@ public class UserProfile {
         line(sb, "Disliked games", preferences(Category.GAME, Sentiment.DISLIKE));
         line(sb, "Platforms", preferences(Category.PLATFORM, Sentiment.LIKE));
         if (!notes.isEmpty()) sb.append("Notes/constraints: ").append(String.join("; ", notes)).append('\n');
+        if (steamLink != null && !owned.isEmpty()) {
+            sb.append("Steam profile (linked), most played: ").append(mostPlayed(8).stream().filter(g -> g.hours() >= 1)
+                            .map(g -> g.name() + " (" + Math.round(g.hours()) + " h)").collect(Collectors.joining(", ")))
+                    .append(". The user already owns these, so do not recommend them.\n");
+        }
         if (!feedback.isEmpty()) {
             sb.append("Game feedback: ");
             sb.append(feedback.stream().skip(Math.max(0, feedback.size() - 8))
@@ -119,4 +149,18 @@ public class UserProfile {
     List<GameFeedback> feedbackList() { return feedback; }
     List<LogEntry> logList() { return log; }
     Set<String> shownSet() { return shown; }
+
+    void setSteam(SteamLink link, List<OwnedGame> games) {
+        this.steamLink = link;
+        owned.clear();
+        ownedKeys.clear();
+        if (games != null) {
+            owned.addAll(games);
+            for (OwnedGame g : games) ownedKeys.add(Names.norm(g.name()));
+        }
+    }
+
+    void clearSteam() {
+        setSteam(null, List.of());
+    }
 }

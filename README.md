@@ -16,10 +16,11 @@ This is the **command-line version**. A GUI can sit on the same `AgentController
 | Preference refinement interview | `/refine` | AI: finds gaps, asks questions, interprets answers |
 | Curveball roulette (1 popular + 1 niche) | `/curveball [hint]` | Hybrid: real Steam top sellers + LLM |
 | Gaming news panel | `/news [topic]` | Hybrid: RSS feeds, LLM ranking, keyword fallback, stored copy when offline |
+| Steam profile link (most-played games from your public profile URL) | `/steam <profile link>`, `/steam refresh`, `/steam top`, `/steam unlink`, or paste your link in chat | Hybrid: playtime rules are deterministic, the AI uses the result |
 | Interest log | `/history [n]` | Deterministic |
 | Conversational agent with tools (remembers preferences while you talk, then recommends) | type normally | Agent loop |
 
-**Not implemented yet:** Steam library connection, gaming calendar, friend recommendations, playtime estimator, GUI.
+**Not implemented yet:** gaming calendar, friend recommendations, playtime estimator, GUI.
 
 ## Prerequisites
 
@@ -84,6 +85,7 @@ agent/      AgentController (Facade), ChatAgent (tool loop), Tools, FeedbackServ
 recommend/  RecommendationStrategy (Personalized, Curveball), RecommendationFactory, GameCatalog
 profile/    UserProfile, ProfileManager (+ listeners), JSON persistence
 news/       NewsSource (RSS adapter), NewsService
+steam/      SteamProfileSource (Steam Community adapter), SteamLibraryAnalyzer, SteamLinkService
 data/       GameDataSource (Steam store adapter)
 llm/        LLMClient (Gemini, OpenAI-compatible), ResilientLLMClient, PromptBuilder
 ```
@@ -94,13 +96,35 @@ llm/        LLMClient (Gemini, OpenAI-compatible), ResilientLLMClient, PromptBui
 | Strategy | `RecommendationStrategy` / `PersonalizedStrategy`, `CurveballStrategy` | Different recommendation algorithms behind one interface |
 | Factory | `RecommendationFactory`, `LLMClientFactory` | Central construction of strategies / LLM clients |
 | Observer | `ProfileManager` -> `ProfileListener` (`AutoSaveListener`, `GameCatalog`, `NewsService`) | Profile changes automatically save, flag the catalogue stale and drop cached news rankings |
-| Adapter | `SteamStoreAdapter`, `RssNewsSource` | Third-party formats are converted to our `Game` / `NewsItem` |
+| Adapter | `SteamStoreAdapter`, `SteamCommunityAdapter`, `RssNewsSource` | Third-party formats are converted to our `Game` / `NewsItem` |
 | Decorator | `ResilientLLMClient` | Adds throttling and retry/backoff to any LLM client |
 | Command | `cli/commands/*` | Each CLI command is an object; easy to add or reuse in a GUI |
 
 How a recommendation is made (`PersonalizedStrategy`): LLM proposes candidates from your profile and request,
 each is checked against the Steam catalogue (hallucinated titles are dropped), the LLM ranks and explains the verified
 ones, already-known games are filtered, and the result is saved to your catalogue.
+
+## Linking your Steam profile
+
+`/steam https://steamcommunity.com/id/yourname` reads your **public** profile, the same feed a browser gets without signing in.
+There is no login, password or API key. You can paste a profile link (`.../id/name` or `.../profiles/765...`), a 17-digit
+Steam ID or just your custom URL name; the link is also recognised when you paste it in chat.
+
+Set these in Steam under Profile > Edit Profile > Privacy Settings: **My profile = Public** and **Game details = Public**.
+You can switch them back afterwards because only a snapshot is kept; run `/steam refresh` after making them public again to update it.
+
+**What it can see:** Steam no longer serves a profile's full games list to anyone who isn't signed in (every version of that page
+redirects to the login screen). A public profile still lists its **few most-played games with hours**, and that is what gets
+imported. The app tells you how many it read. Your other games are not visible, so they can still be recommended.
+
+What it does with those games:
+
+* The ones you've put real time into (2+ hours) become liked games, and genres shared by several of them become liked genres.
+* It never overrides you: anything you have already liked or disliked is left alone, and refreshing does not add weight twice.
+* Games it knows you own are not recommended, and the AI is told not to suggest them.
+* `/steam unlink` forgets the link; it asks whether to also remove the tastes that were imported (what you said yourself stays).
+
+The snapshot is stored in `data/profile.json`, which is git-ignored.
 
 ## Tests
 
@@ -112,9 +136,15 @@ test.bat         (Windows)
 Runs offline using stub servers, a fake Steam and a scripted fake LLM (test code only). It does not call Gemini or Steam.
 These are smoke/verification tests written without a test framework; a JUnit suite is a planned improvement.
 
+The suite ends with **design-pattern guards** (`PatternGuards.java`). They fail if a change bypasses the Facade (the CLI must go
+through `AgentController`), names a concrete Steam/RSS/LLM class outside the composition root, stops notifying observers on a
+profile change, builds a strategy without the factory, breaks decorator stacking, or adds a command/tool that is never registered.
+
 ## Known limitations
 
-* The Steam store endpoints and the Gemini endpoint are exercised in tests only through stubs that copy their documented
-  response shape; the first real run is the first live check. Please report any parsing problems.
+* The Steam store endpoints, the Steam Community profile pages and the Gemini endpoint are exercised in tests only through stubs
+  that copy their documented response shape; the first real run is the first live check. Please report any parsing problems.
+* Steam Community pages are not an official API and are rate-limited per IP; if Steam changes them, `/steam` reports it
+  instead of guessing. Reading the whole library would need Steam's Web API with a free API key, which isn't implemented.
 * Console exclusives are not in the Steam catalogue, so they show as "(unverified)".
 * Free-tier rate limits: calls are throttled (`LLM_MIN_INTERVAL_MS`) and retried, so replies can take several seconds.

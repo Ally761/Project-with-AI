@@ -18,6 +18,7 @@ public final class Commands {
                 .register(new ForgetCommand())
                 .register(new NoteCommand())
                 .register(new RateCommand())
+                .register(new SteamCommand())
                 .register(new RefineCommand())
                 .register(new CatalogCommand())
                 .register(new HistoryCommand())

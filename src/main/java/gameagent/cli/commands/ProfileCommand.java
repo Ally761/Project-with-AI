@@ -18,6 +18,7 @@ class ProfileCommand extends BaseCommand {
     @Override
     public void execute(String args, CliContext ctx) {
         UserProfile p = ctx.agent().profile();
+        p.steamLink().ifPresent(l -> ctx.println("Steam: linked to " + l.personaName() + " (" + p.ownedGames().size() + " most-played games known)."));
         if (p.isEmpty()) {
             ctx.println("Your profile is empty. Chat with me about games you like, or use /like and /refine.");
             return;

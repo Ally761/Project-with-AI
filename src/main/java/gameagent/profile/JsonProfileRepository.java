@@ -13,6 +13,8 @@ import java.util.Map;
 
 import gameagent.model.GameFeedback;
 import gameagent.model.LogEntry;
+import gameagent.model.OwnedGame;
+import gameagent.model.SteamLink;
 import gameagent.util.Json;
 import gameagent.util.JsonException;
 
@@ -51,6 +53,18 @@ public class JsonProfileRepository implements ProfileRepository {
                 p.logList().add(new LogEntry(instant(Json.str(m, "time")), Json.str(m, "type", ""), Json.str(m, "text", "")));
             }
             p.shownSet().addAll(Json.strList(root, "shown"));
+            Map<String, Object> steam = Json.obj(root, "steam");
+            if (steam != null && Json.str(steam, "steamId") != null) {
+                List<OwnedGame> games = new ArrayList<>();
+                for (Object o : Json.list(steam, "games")) {
+                    Map<String, Object> m = Json.asObject(o);
+                    String gn = Json.str(m, "name");
+                    if (gn == null || gn.isBlank()) continue;
+                    games.add(new OwnedGame((long) Json.num(m, "appId", 0), gn, Json.num(m, "hours", 0), Json.num(m, "recent", 0)));
+                }
+                p.setSteam(new SteamLink(Json.str(steam, "steamId"), Json.str(steam, "personaName", ""),
+                        Json.str(steam, "profileUrl", ""), instant(Json.str(steam, "linkedAt"))), games);
+            }
         } catch (IOException | JsonException e) {
             System.err.println("Warning: could not read profile (" + e.getMessage() + "); starting empty. File kept at " + file);
             return new UserProfile();
@@ -94,6 +108,24 @@ public class JsonProfileRepository implements ProfileRepository {
         }
         root.put("log", log);
         root.put("shown", new ArrayList<>(p.shownGames()));
+        p.steamLink().ifPresent(link -> {
+            Map<String, Object> steam = new LinkedHashMap<>();
+            steam.put("steamId", link.steamId());
+            steam.put("personaName", link.personaName());
+            steam.put("profileUrl", link.profileUrl());
+            steam.put("linkedAt", link.linkedAt().toString());
+            List<Object> games = new ArrayList<>();
+            for (OwnedGame g : p.ownedGames()) {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("appId", g.appId());
+                m.put("name", g.name());
+                m.put("hours", g.hours());
+                m.put("recent", g.hoursRecent());
+                games.add(m);
+            }
+            steam.put("games", games);
+            root.put("steam", steam);
+        });
 
         if (file.getParent() != null) Files.createDirectories(file.getParent());
         Path tmp = file.resolveSibling(file.getFileName() + ".tmp");

@@ -9,6 +9,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 import gameagent.model.GameFeedback;
 import gameagent.model.LogEntry;
+import gameagent.model.OwnedGame;
+import gameagent.model.SteamLink;
 
 /**
  * Single writer of the {@link UserProfile}. Applies updates, resolves conflicts, and publishes
@@ -132,6 +134,35 @@ public class ProfileManager {
             profile.shownSet().remove(profile.shownSet().iterator().next());
         }
         fire(ProfileEvent.Type.LOG_ADDED, "shown games updated");
+    }
+
+    /** Stores the linked Steam profile and its library (replacing any earlier link). */
+    public void linkSteam(SteamLink link, List<OwnedGame> games) {
+        profile.setSteam(link, games);
+        appendLog("steam", "Linked Steam profile " + link.personaName() + " (" + games.size() + " games)");
+        fire(ProfileEvent.Type.STEAM_CHANGED, "linked " + link.personaName());
+    }
+
+    /**
+     * Forgets the linked profile and library. With {@code removeImported}, preferences that still carry the
+     * "steam" source (never touched or confirmed by the user) are removed too; anything the user stated stays.
+     *
+     * @return the preferences removed
+     */
+    public List<String> unlinkSteam(boolean removeImported) {
+        List<String> removed = new ArrayList<>();
+        if (profile.steamLink().isEmpty()) return removed;
+        if (removeImported) {
+            profile.prefMap().values().removeIf(p -> {
+                boolean imported = "steam".equals(p.source());
+                if (imported) removed.add(p.category().name().toLowerCase() + " \"" + p.name() + "\"");
+                return imported;
+            });
+        }
+        profile.clearSteam();
+        appendLog("steam", "Unlinked Steam profile" + (removed.isEmpty() ? "" : "; removed " + removed.size() + " imported preferences"));
+        fire(ProfileEvent.Type.STEAM_CHANGED, "unlinked");
+        return removed;
     }
 
     /** Adds a line to the interaction log. */
