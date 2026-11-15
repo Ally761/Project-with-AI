@@ -1,0 +1,28 @@
+# Local secrets (API keys). Only the placeholder template is committed.
+.env
+.env.*
+!.env.example
+config.local.json
+*.pem
+*.key
+
+# Local user data (profile, catalog, news cache) and the temp file used while saving
+data/*.json
+data/*.tmp
+
+# Build output
+target/
+out/
+*.class
+*.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Logs, crash dumps, OS junk
+*.log
+hs_err_pid*
+.DS_Store
+Thumbs.db
