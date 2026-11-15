@@ -3,6 +3,7 @@ package gameagent.agent;
 import java.util.ArrayList;
 import java.util.List;
 
+import gameagent.calendar.CalendarPlan;
 import gameagent.model.NewsItem;
 import gameagent.model.Recommendation;
 
@@ -16,4 +17,6 @@ public class ToolContext {
     public final List<String> profileChanges = new ArrayList<>();
     public final List<String> warnings = new ArrayList<>();
     public final List<String> toolsUsed = new ArrayList<>();
+    /** Set when a tool built or changed the gaming calendar this turn. */
+    public CalendarPlan calendar;
 }

@@ -718,6 +718,168 @@ public class AllTests {
             check(out.contains("Celeste"), "profile works offline");
         });
 
+        System.out.println("Gaming calendar");
+        test("calendar: availability syntax parses days, ranges and vibes", () -> {
+            var slots = gameagent.calendar.AvailabilityParser.parse("mon,wed 20:00-22:00 chill; sat 14:00-18:00 intense; weekends 9-10");
+            eq(2 + 1 + 2, slots.size(), "mon, wed, sat, plus sat+sun");
+            eq(120, slots.get(0).minutes(), "2 hours");
+            eq("chill", slots.get(0).vibe(), "vibe");
+            eq("intense", slots.get(2).vibe(), "vibe on sat");
+            for (String bad : new String[]{"", "mon", "20:00-22:00", "mon 22:00-20:00", "mon 25:00-26:00", "funday 20:00-21:00"}) {
+                try { gameagent.calendar.AvailabilityParser.parse(bad); check(false, "should reject: " + bad); } catch (gameagent.calendar.CalendarException expected) { }
+            }
+        });
+        test("calendar: free-text availability is read by the AI, bad blocks are skipped", () -> {
+            AgentController c = controller(new Fakes.ScriptedLLM(Fakes::smartScript), new Fakes.FakeSteam(), List.of(), tmp());
+            var slots = c.setAvailability("I'm usually free on Monday and Wednesday evenings after 8");
+            eq(2, slots.size(), "the block that ends before it starts is dropped");
+            eq(java.time.DayOfWeek.WEDNESDAY, slots.get(1).day(), "day names are lenient");
+            eq(java.time.LocalTime.of(20, 0), slots.get(0).start(), "start");
+            Fakes.ScriptedLLM down = new Fakes.ScriptedLLM(Fakes::smartScript);
+            down.down = true;
+            AgentController offline = controller(down, new Fakes.FakeSteam(), List.of(), tmp());
+            try { offline.setAvailability("some evenings"); check(false, "needs the AI for free text"); }
+            catch (gameagent.calendar.CalendarException e) { check(e.getMessage().contains("compact form"), e.getMessage()); }
+            eq(1, offline.setAvailability("sun 10:00-12:00").size(), "compact form needs no AI");
+        });
+        test("calendar: a plan only uses available slots, respects hours, and is saved", () -> {
+            Path d = tmp();
+            AgentController c = controller(new Fakes.ScriptedLLM(Fakes::smartScript), new Fakes.FakeSteam(), List.of(), d);
+            try { c.createCalendar(1, gameagent.calendar.ScheduleMode.FOCUS); check(false, "needs availability"); }
+            catch (gameagent.calendar.CalendarException e) { check(e.getMessage().contains("when you can play"), e.getMessage()); }
+            c.setAvailability("mon,wed 20:00-22:00 chill; sat 14:00-18:00");
+            try { c.createCalendar(1, gameagent.calendar.ScheduleMode.FOCUS); check(false, "needs games"); }
+            catch (gameagent.calendar.CalendarException e) { check(e.getMessage().contains("no games to schedule"), e.getMessage()); }
+            c.addCalendarGame("Celeste", 8.0);
+            c.addCalendarGame("Hades", null);
+            var plan = c.createCalendar(4, gameagent.calendar.ScheduleMode.FOCUS);
+            check(!plan.sessions().isEmpty(), "sessions");
+            for (var s : plan.sessions()) {
+                var day = s.date().getDayOfWeek();
+                check(day == java.time.DayOfWeek.MONDAY || day == java.time.DayOfWeek.WEDNESDAY || day == java.time.DayOfWeek.SATURDAY, "only on free days: " + day);
+                check(s.minutes() > 0 && s.minutes() <= 240, "fits a slot: " + s.minutes());
+            }
+            var celeste = plan.progress().stream().filter(p -> p.name().equals("Celeste")).findFirst().orElseThrow();
+            eq(480, celeste.totalMinutes(), "user's own hours are used, not the estimate");
+            check(!celeste.estimated(), "user figure is not marked as a guess");
+            var hades = plan.progress().stream().filter(p -> p.name().equals("Hades")).findFirst().orElseThrow();
+            eq(22 * 60, hades.totalMinutes(), "estimate used when no hours given");
+            check(hades.estimated(), "AI figure is marked as a guess");
+            check(plan.warnings().stream().anyMatch(w -> w.contains("AI estimates")), "estimates are disclosed");
+            for (int i = 1; i < plan.sessions().size(); i++) {
+                var a = plan.sessions().get(i - 1); var b = plan.sessions().get(i);
+                check(!b.date().isBefore(a.date()) && (!b.date().equals(a.date()) || !b.start().isBefore(a.end())), "sessions never overlap and stay in order");
+            }
+            check(Files.exists(d.resolve("calendar.json")), "persisted");
+            AgentController again = controller(new Fakes.ScriptedLLM(Fakes::smartScript), new Fakes.FakeSteam(), List.of(), d);
+            eq(plan.sessions().size(), again.currentCalendar().orElseThrow().sessions().size(), "plan survives a restart");
+            eq(3, again.availability().size(), "availability survives a restart");
+            eq(2, again.calendarGames().size(), "added games survive a restart");
+        });
+        test("calendar: the two strategies differ - focus finishes games in turn, mix rotates", () -> {
+            Path d = tmp();
+            AgentController c = controller(new Fakes.ScriptedLLM(Fakes::smartScript), new Fakes.FakeSteam(), List.of(), d);
+            c.setAvailability("daily 18:00-21:00");
+            c.addCalendarGame("Celeste", 6.0);
+            c.addCalendarGame("Hades", 6.0);
+            var focus = c.createCalendar(1, gameagent.calendar.ScheduleMode.FOCUS);
+            eq("Celeste", focus.sessions().get(0).game(), "first game first");
+            eq("Celeste", focus.sessions().get(1).game(), "focus stays on the first game");
+            var mix = c.createCalendar(1, gameagent.calendar.ScheduleMode.MIX);
+            eq("Celeste", mix.sessions().get(0).game(), "mix starts the same");
+            eq("Hades", mix.sessions().get(1).game(), "mix rotates to the next game");
+            for (var s : mix.sessions()) check(s.minutes() <= 90, "mix keeps sessions short: " + s.minutes());
+            check(focus.progress().stream().allMatch(gameagent.calendar.GameProgress::finished), "12 h fits in 21 h of free time");
+        });
+        test("calendar: limited free time warns and offers shorter games, splitting and a changed schedule", () -> {
+            AgentController c = controller(new Fakes.ScriptedLLM(Fakes::smartScript), new Fakes.FakeSteam(), List.of(), tmp());
+            c.setAvailability("mon 20:00-21:00");
+            c.addCalendarGame("Hollow Knight", 40.0);
+            c.addCalendarGame("Celeste", 8.0);
+            var plan = c.createCalendar(1, gameagent.calendar.ScheduleMode.FOCUS);
+            check(plan.progress().stream().anyMatch(p -> !p.finished()), "something does not fit");
+            check(plan.warnings().stream().anyMatch(w -> w.contains("Not everything fits")), "warned: " + plan.warnings());
+            String all = String.join(" | ", plan.suggestions());
+            check(all.contains("shorter games") && all.contains("Celeste"), "suggests short games: " + all);
+            check(all.contains("Split games into sessions") && all.contains("mix"), "suggests splitting: " + all);
+            check(all.contains("Change the schedule"), "suggests changing the schedule: " + all);
+            int scheduled = plan.progress().stream().mapToInt(gameagent.calendar.GameProgress::scheduledMinutes).sum();
+            eq(plan.totalMinutes(), scheduled, "progress adds up to what was scheduled");
+            check(plan.totalMinutes() <= 60, "never schedules beyond the free time: " + plan.totalMinutes());
+        });
+        test("calendar: refinement blocks days, prioritises and excludes games, and keeps the old plan on failure", () -> {
+            AgentController c = controller(new Fakes.ScriptedLLM(Fakes::smartScript), new Fakes.FakeSteam(), List.of(), tmp());
+            try { c.refineCalendar("no games on Friday"); check(false, "needs a plan"); } catch (gameagent.calendar.CalendarException e) { check(e.getMessage().contains("no calendar yet"), e.getMessage()); }
+            c.setAvailability("fri 19:00-23:00; sat 10:00-14:00");
+            c.addCalendarGame("Celeste", 4.0);
+            c.addCalendarGame("Hades", 4.0);
+            c.addCalendarGame("Dead Cells", 4.0);
+            var before = c.createCalendar(2, gameagent.calendar.ScheduleMode.FOCUS);
+            check(before.sessions().stream().anyMatch(s -> s.date().getDayOfWeek() == java.time.DayOfWeek.FRIDAY), "friday used at first");
+            var after = c.refineCalendar("no games on Friday");
+            check(after.sessions().stream().noneMatch(s -> s.date().getDayOfWeek() == java.time.DayOfWeek.FRIDAY), "friday blocked");
+            var third = c.refineCalendar("play Hades first, skip dead cells, shorter sessions");
+            eq("Hades", third.sessions().get(0).game(), "priority honoured");
+            check(third.sessions().stream().noneMatch(s -> s.game().equals("Dead Cells")), "excluded game left out");
+            check(third.sessions().stream().allMatch(s -> s.minutes() <= 60), "session cap honoured");
+            eq(gameagent.calendar.ScheduleMode.MIX, third.mode(), "mode switched");
+            check(third.sessions().stream().noneMatch(s -> s.date().getDayOfWeek() == java.time.DayOfWeek.FRIDAY), "earlier adjustments are kept");
+            c.setAvailability("fri 19:00-23:00");
+            try { c.refineCalendar("no games on Friday"); check(false, "all days blocked"); }
+            catch (gameagent.calendar.CalendarException e) { check(e.getMessage().contains("blocked"), e.getMessage()); }
+            eq(third.sessions().size(), c.currentCalendar().orElseThrow().sessions().size(), "failed refinement leaves the plan alone");
+        });
+        test("calendar: AI outages never break scheduling when hours are known", () -> {
+            Fakes.ScriptedLLM llm = new Fakes.ScriptedLLM(Fakes::smartScript);
+            AgentController c = controller(llm, new Fakes.FakeSteam(), List.of(), tmp());
+            c.setAvailability("sat 10:00-14:00");
+            c.addCalendarGame("Celeste", 3.0);
+            c.addCalendarGame("Mystery Game", null);
+            llm.down = true;
+            var plan = c.createCalendar(1, gameagent.calendar.ScheduleMode.FOCUS);
+            check(plan.warnings().stream().anyMatch(w -> w.contains("Couldn't estimate")), "says estimates failed: " + plan.warnings());
+            eq(180, plan.progress().get(0).totalMinutes(), "user hours unaffected");
+            eq(600, plan.progress().get(1).totalMinutes(), "neutral default for the unknown game");
+            try { c.refineCalendar("no games on Friday"); check(false, "refine needs the AI"); }
+            catch (gameagent.calendar.CalendarException e) { check(e.getMessage().contains("AI"), e.getMessage()); }
+        });
+        test("calendar: profile changes mark the plan out of date (Observer)", () -> {
+            AgentController c = controller(new Fakes.ScriptedLLM(Fakes::smartScript), new Fakes.FakeSteam(), List.of(), tmp());
+            c.setAvailability("sat 10:00-14:00");
+            c.addCalendarGame("Celeste", 3.0);
+            c.createCalendar(1, gameagent.calendar.ScheduleMode.FOCUS);
+            check(!c.calendarIsStale(), "fresh");
+            c.updateProfile(new ProfileUpdate("user").like(Category.GENRE, "Puzzle"), ConflictResolver.NEWEST_WINS);
+            check(c.calendarIsStale(), "flagged after a profile change");
+            c.createCalendar(1, gameagent.calendar.ScheduleMode.FOCUS);
+            check(!c.calendarIsStale(), "rebuilt plan is fresh");
+        });
+        test("calendar: saved recommendations are scheduled too, and the chat tool builds a calendar", () -> {
+            AgentController c = controller(new Fakes.ScriptedLLM(Fakes::smartScript), new Fakes.FakeSteam(), List.of(), tmp());
+            c.recommend("something like Hades", 3);
+            c.setAvailability("daily 19:00-22:00");
+            var plan = c.createCalendar(1, gameagent.calendar.ScheduleMode.MIX);
+            check(plan.progress().stream().anyMatch(p -> p.name().equals("Dead Cells")), "recommended game is planned: " + plan.progress());
+            var tool = new gameagent.agent.tools.PlanCalendarTool(null);
+            check(tool.name().equals("plan_calendar") && tool.description().contains("weeks"), "tool describes itself");
+        });
+        test("cli: /calendar end to end", () -> {
+            AgentController c = controller(new Fakes.ScriptedLLM(Fakes::smartScript), new Fakes.FakeSteam(), List.of(), tmp());
+            String input = "/calendar\n/calendar when nonsense\n/calendar when mon,wed 20:00-22:00 chill; sat 14:00-16:00\n/calendar make\n"
+                    + "/calendar add Celeste | 8\n/calendar add Hades | lots\n/calendar games\n/calendar make month mix\n/calendar tweak no games on Friday\n"
+                    + "/calendar remove Celeste\n/calendar\n/calendar reset\n/quit\n";
+            ByteArrayOutputStream buf = new ByteArrayOutputStream();
+            new CliApp(c, new BufferedReader(new StringReader(input)), new PrintStream(buf, true, StandardCharsets.UTF_8)).run();
+            String out = buf.toString(StandardCharsets.UTF_8);
+            System.out.println("    ---- CLI transcript (excerpt) ----");
+            for (String line : out.split("\n")) System.out.println("    | " + line);
+            for (String must : new String[]{"No availability set", "Saved: Mon 20:00-22:00 (chill)",
+                    "There are no games to schedule yet", "Added Celeste (8.0 h).", "isn't a number of hours", "Gaming calendar:", "Progress:",
+                    "Celeste: ", "mix mode", "Removed Celeste.", "Adjustments cleared"}) {
+                check(out.contains(must), "CLI output should contain: " + must);
+            }
+        });
+
         PatternGuards.run();
 
         System.out.println("\n" + passed + " passed, " + failed + " failed");

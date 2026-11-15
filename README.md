@@ -17,10 +17,11 @@ This is the **command-line version**. A GUI can sit on the same `AgentController
 | Curveball roulette (1 popular + 1 niche) | `/curveball [hint]` | Hybrid: real Steam top sellers + LLM |
 | Gaming news panel | `/news [topic]` | Hybrid: RSS feeds, LLM ranking, keyword fallback, stored copy when offline |
 | Steam profile link (most-played games from your public profile URL) | `/steam <profile link>`, `/steam refresh`, `/steam top`, `/steam unlink`, or paste your link in chat | Hybrid: playtime rules are deterministic, the AI uses the result |
+| Gaming calendar (weekly or monthly play schedule) | `/calendar when ...`, `/calendar add <game> \| <hours>`, `/calendar make [weeks\|month] [focus\|mix]`, `/calendar tweak <change>`, or ask in chat | Hybrid: the schedule is computed by rules so it always fits your time; the AI reads free-text availability, estimates playtime and applies tweaks |
 | Interest log | `/history [n]` | Deterministic |
 | Conversational agent with tools (remembers preferences while you talk, then recommends) | type normally | Agent loop |
 
-**Not implemented yet:** gaming calendar, friend recommendations, playtime estimator, GUI.
+**Not implemented yet:** friend recommendations, a standalone playtime estimator command, GUI. (The calendar uses a small AI-backed playtime estimator internally.)
 
 ## Prerequisites
 
@@ -85,6 +86,8 @@ agent/      AgentController (Facade), ChatAgent (tool loop), Tools, FeedbackServ
 recommend/  RecommendationStrategy (Personalized, Curveball), RecommendationFactory, GameCatalog
 profile/    UserProfile, ProfileManager (+ listeners), JSON persistence
 news/       NewsSource (RSS adapter), NewsService
+calendar/   CalendarService, SchedulingStrategy (Focus, Variety), CalendarStore
+playtime/   PlaytimeEstimator (port), LlmPlaytimeEstimator
 steam/      SteamProfileSource (Steam Community adapter), SteamLibraryAnalyzer, SteamLinkService
 data/       GameDataSource (Steam store adapter)
 llm/        LLMClient (Gemini, OpenAI-compatible), ResilientLLMClient, PromptBuilder
@@ -94,8 +97,9 @@ llm/        LLMClient (Gemini, OpenAI-compatible), ResilientLLMClient, PromptBui
 |---------|-------|-------------------|
 | Facade | `AgentController` | UIs (CLI now, GUI later) use one class instead of every service |
 | Strategy | `RecommendationStrategy` / `PersonalizedStrategy`, `CurveballStrategy` | Different recommendation algorithms behind one interface |
+| Strategy (2) | `SchedulingStrategy` / `FocusScheduling`, `VarietyScheduling` | Finish games one at a time, or rotate between them, behind one interface |
 | Factory | `RecommendationFactory`, `LLMClientFactory` | Central construction of strategies / LLM clients |
-| Observer | `ProfileManager` -> `ProfileListener` (`AutoSaveListener`, `GameCatalog`, `NewsService`) | Profile changes automatically save, flag the catalogue stale and drop cached news rankings |
+| Observer | `ProfileManager` -> `ProfileListener` (`AutoSaveListener`, `GameCatalog`, `NewsService`, `CalendarService`) | Profile changes automatically save, flag the catalogue and calendar as out of date and drop cached news rankings |
 | Adapter | `SteamStoreAdapter`, `SteamCommunityAdapter`, `RssNewsSource` | Third-party formats are converted to our `Game` / `NewsItem` |
 | Decorator | `ResilientLLMClient` | Adds throttling and retry/backoff to any LLM client |
 | Command | `cli/commands/*` | Each CLI command is an object; easy to add or reuse in a GUI |
@@ -103,6 +107,21 @@ llm/        LLMClient (Gemini, OpenAI-compatible), ResilientLLMClient, PromptBui
 How a recommendation is made (`PersonalizedStrategy`): LLM proposes candidates from your profile and request,
 each is checked against the Steam catalogue (hallucinated titles are dropped), the LLM ranks and explains the verified
 ones, already-known games are filtered, and the result is saved to your catalogue.
+
+## Gaming calendar
+
+```
+/calendar when mon,wed 20:00-22:00 chill; sat 14:00-18:00 intense     when you can play (weekdays, weekends, daily also work)
+/calendar add Celeste | 8                                              a game and how many hours it takes (hours optional)
+/calendar make                                                         one week;  /calendar make month mix   four weeks, rotating games
+/calendar tweak no games on Friday                                      plain-English changes (also: "play Hades first", "sessions under an hour")
+```
+
+Games come from the ones you add plus your saved recommendations (up to 8). Hours you give are used as they are; for other games the
+AI estimates the hours and a "vibe" (chill, intense...), and those numbers are shown with a `~`. Slots with a vibe go to games that
+match it. `focus` finishes one game before the next; `mix` rotates with sessions of at most 90 minutes.
+If your games do not fit in your free time, the calendar says so and offers three options: shorter games, splitting games into
+sessions (`mix`), or changing your schedule. The plan is saved in `data/calendar.json` and flagged when your profile changes.
 
 ## Linking your Steam profile
 
@@ -138,7 +157,7 @@ These are smoke/verification tests written without a test framework; a JUnit sui
 
 The suite ends with **design-pattern guards** (`PatternGuards.java`). They fail if a change bypasses the Facade (the CLI must go
 through `AgentController`), names a concrete Steam/RSS/LLM class outside the composition root, stops notifying observers on a
-profile change, builds a strategy without the factory, breaks decorator stacking, or adds a command/tool that is never registered.
+profile change, builds a strategy without the factory, breaks decorator stacking, or adds a command/tool that is never registered. Further guards cover the calendar's scheduling strategies and its playtime port.
 
 ## Known limitations
 

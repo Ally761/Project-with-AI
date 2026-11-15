@@ -91,6 +91,29 @@ final class Fakes {
             }
             return "{\"likes\":[{\"category\":\"platform\",\"name\":\"PC\"}],\"dislikes\":[{\"category\":\"tag\",\"name\":\"Grinding\"}],\"remove\":[],\"notes\":[\"sessions around 45 minutes\"]}";
         }
+        if (sys.contains("typical hours to finish")) {
+            StringBuilder sb = new StringBuilder("{\"games\":[");
+            boolean first = true;
+            for (String line : user.split("\n")) {
+                if (!line.startsWith("- ")) continue;
+                String n = line.substring(2).trim();
+                double h = n.equals("Hades") ? 22 : n.equals("Dead Cells") ? 18 : n.equals("Hollow Knight") ? 30 : n.equals("Celeste") ? 8 : 10;
+                String vibe = n.equals("Celeste") ? "chill" : "intense";
+                if (!first) sb.append(',');
+                first = false;
+                sb.append("{\"name\":\"").append(n).append("\",\"hours\":").append(h).append(",\"vibes\":[\"").append(vibe).append("\",\"bogus\"]}");
+            }
+            return sb.append("]}").toString();
+        }
+        if (sys.contains("weekly time blocks")) {
+            return "{\"slots\":[{\"days\":[\"mon\",\"Wednesday\"],\"start\":\"20:00\",\"end\":\"22:00\",\"vibe\":\"chill\"},{\"days\":[\"sat\"],\"start\":\"9:00\",\"end\":\"8:00\",\"vibe\":\"\"}]}";
+        }
+        if (sys.contains("adjust their gaming calendar")) {
+            String said = user.substring(user.indexOf("The user says:")).toLowerCase();
+            if (said.contains("friday")) return "{\"reset\":false,\"blockDays\":[\"fri\"],\"maxSessionMinutes\":0,\"prioritize\":[],\"exclude\":[],\"mode\":\"\"}";
+            if (said.contains("hades first")) return "{\"blockDays\":[],\"maxSessionMinutes\":60,\"prioritize\":[\"Hades\"],\"exclude\":[\"Dead Cells\"],\"mode\":\"mix\"}";
+            return "{}";
+        }
         return "{}";
     }
 

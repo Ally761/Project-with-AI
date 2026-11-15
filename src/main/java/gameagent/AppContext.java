@@ -11,17 +11,21 @@ import gameagent.agent.FeedbackService;
 import gameagent.agent.RefinementService;
 import gameagent.agent.ToolRegistry;
 import gameagent.agent.tools.GetNewsTool;
+import gameagent.agent.tools.PlanCalendarTool;
 import gameagent.agent.tools.GetProfileTool;
 import gameagent.agent.tools.LinkSteamTool;
 import gameagent.agent.tools.RecommendGamesTool;
 import gameagent.agent.tools.SearchGamesTool;
 import gameagent.agent.tools.UpdatePreferencesTool;
+import gameagent.calendar.CalendarService;
+import gameagent.calendar.CalendarStore;
 import gameagent.config.AppConfig;
 import gameagent.data.GameDataSource;
 import gameagent.data.SteamStoreAdapter;
 import gameagent.llm.LLMClient;
 import gameagent.llm.LLMClientFactory;
 import gameagent.news.NewsService;
+import gameagent.playtime.LlmPlaytimeEstimator;
 import gameagent.news.NewsSource;
 import gameagent.news.RssNewsSource;
 import gameagent.profile.AutoSaveListener;
@@ -67,17 +71,21 @@ public final class AppContext {
 
         RecommendationService recs = new RecommendationService(new RecommendationFactory(llm, data, profiles), catalog);
         SteamLinkService steam = new SteamLinkService(steamProfiles, data, profiles);
+        CalendarService calendar = new CalendarService(new CalendarStore(dataDir.resolve("calendar.json")), catalog,
+                new LlmPlaytimeEstimator(llm), llm, profiles, java.time.LocalDate::now);
+        profiles.addListener(calendar);
         ToolRegistry tools = new ToolRegistry()
                 .register(new UpdatePreferencesTool(profiles))
                 .register(new RecommendGamesTool(recs))
                 .register(new SearchGamesTool(data))
                 .register(new GetNewsTool(news))
                 .register(new GetProfileTool(profiles))
-                .register(new LinkSteamTool(steam));
+                .register(new LinkSteamTool(steam))
+                .register(new PlanCalendarTool(calendar));
         ConversationMemory memory = new ConversationMemory(12);
         ChatAgent chat = new ChatAgent(llm, tools, profiles, memory);
 
         return new AgentController(llm, profiles, chat, memory, recs, news,
-                new FeedbackService(profiles, llm, data), new RefinementService(profiles, llm), data, steam);
+                new FeedbackService(profiles, llm, data), new RefinementService(profiles, llm), data, steam, calendar);
     }
 }

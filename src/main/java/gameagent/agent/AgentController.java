@@ -3,6 +3,12 @@ package gameagent.agent;
 import java.util.List;
 import java.util.Optional;
 
+import gameagent.calendar.CalendarException;
+import gameagent.calendar.CalendarGame;
+import gameagent.calendar.CalendarPlan;
+import gameagent.calendar.CalendarService;
+import gameagent.calendar.PlaySlot;
+import gameagent.calendar.ScheduleMode;
 import gameagent.data.DataSourceException;
 import gameagent.data.GameDataSource;
 import gameagent.llm.LLMClient;
@@ -38,10 +44,12 @@ public class AgentController {
     private final RefinementService refinement;
     private final GameDataSource data;
     private final SteamLinkService steam;
+    private final CalendarService calendar;
 
     public AgentController(LLMClient llm, ProfileManager profiles, ChatAgent chatAgent, ConversationMemory memory,
                            RecommendationService recommendations, NewsService news, FeedbackService feedback,
-                           RefinementService refinement, GameDataSource data, SteamLinkService steam) {
+                           RefinementService refinement, GameDataSource data, SteamLinkService steam,
+                           CalendarService calendar) {
         this.llm = llm;
         this.profiles = profiles;
         this.chatAgent = chatAgent;
@@ -52,6 +60,7 @@ public class AgentController {
         this.refinement = refinement;
         this.data = data;
         this.steam = steam;
+        this.calendar = calendar;
     }
 
     public String modelName() { return llm.name(); }
@@ -115,6 +124,32 @@ public class AgentController {
 
     /** Forgets the link and library; optionally removes the preferences that were imported from it. */
     public List<String> unlinkSteam(boolean removeImported) { return steam.unlink(removeImported); }
+
+    // ---- gaming calendar
+    /** Replaces weekly availability. Accepts "mon,wed 20:00-22:00 chill; sat 14:00-18:00" or plain wording. */
+    public List<PlaySlot> setAvailability(String text) throws CalendarException { return calendar.setAvailability(text); }
+
+    public List<PlaySlot> availability() { return calendar.availability(); }
+
+    public void addCalendarGame(String name, Double hours) throws CalendarException { calendar.addGame(name, hours); }
+
+    public boolean removeCalendarGame(String name) { return calendar.removeGame(name); }
+
+    public List<CalendarGame> calendarGames() { return calendar.games(); }
+
+    /** @param weeks 1 = weekly itinerary, 4 = monthly */
+    public CalendarPlan createCalendar(int weeks, ScheduleMode mode) throws CalendarException {
+        profiles.log("calendar", weeks + " weeks");
+        return calendar.createCalendar(weeks, mode);
+    }
+
+    public CalendarPlan refineCalendar(String instruction) throws CalendarException { return calendar.refineCalendar(instruction); }
+
+    public Optional<CalendarPlan> currentCalendar() { return calendar.current(); }
+
+    public boolean calendarIsStale() { return calendar.isStale(); }
+
+    public void resetCalendarAdjustments() { calendar.resetAdjustments(); }
 
     // ---- misc
     public Optional<Game> lookupGame(String name) throws DataSourceException { return data.findByName(name); }

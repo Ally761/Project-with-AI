@@ -117,6 +117,37 @@ public final class PromptBuilder {
                 + "Do not add the game itself.";
     }
 
+    // ------------------------------------------------------------------ calendar
+
+    public static String playtimeSystem() {
+        return EXPERT + """
+                For each game give the typical hours to finish the main content (or a sensible number of hours for endless games),
+                and up to 3 vibes chosen ONLY from: chill, intense, story, competitive, social, puzzle, short-session.
+                Reply with ONLY this JSON: {"games":[{"name":"exact name as given","hours":12.5,"vibes":["chill"]}]}""";
+    }
+
+    public static String playtimeUser(List<String> games) {
+        return "Estimate playtime for these games:\n- " + String.join("\n- ", games);
+    }
+
+    public static String availabilitySystem() {
+        return "You turn a gamer's description of when they can play into weekly time blocks. "
+                + "Use 24-hour HH:mm times within a single day. Days are mon,tue,wed,thu,fri,sat,sun. "
+                + "Only include blocks the user actually described. Reply with ONLY this JSON: "
+                + "{\"slots\":[{\"days\":[\"mon\",\"wed\"],\"start\":\"20:00\",\"end\":\"22:00\",\"vibe\":\"chill or empty\"}]}";
+    }
+
+    public static String calendarRefineSystem() {
+        return "You convert a gamer's request to adjust their gaming calendar into settings. Only include what they asked for. "
+                + "Reply with ONLY this JSON: {\"reset\":false,\"blockDays\":[\"fri\"],\"maxSessionMinutes\":0,"
+                + "\"prioritize\":[\"game names to schedule first\"],\"exclude\":[\"game names to leave out\"],\"mode\":\"focus|mix|\"}. "
+                + "Use reset=true only if they want to clear earlier adjustments. Use maxSessionMinutes 0 and mode empty when unchanged.";
+    }
+
+    public static String calendarRefineUser(String profile, String current, String instruction) {
+        return "Profile:\n" + profile + "\n\nCurrent calendar adjustments: " + current + "\n\nThe user says: " + instruction;
+    }
+
     // ------------------------------------------------------------------ chat agent
 
     public static String chatSystem(String profile, String toolDescriptions) {
@@ -134,6 +165,7 @@ public final class PromptBuilder {
                 - Whenever the user states a like, dislike, platform, budget, session length or other preference, call update_preferences FIRST so it is remembered.
                 - When the user wants game suggestions (even vaguely), call recommend_games with their request in "query". Results are shown to the user automatically with details; do not re-list them in your reply, just comment briefly.
                 - Use search_games to check facts about a specific title. Use get_news for gaming news. Use get_profile only if you need a refresher.
+                - When the user wants a gaming schedule or calendar, or tells you when they can play, call plan_calendar. The calendar is shown automatically; just comment briefly.
                 - Never invent games, prices or release dates; rely on tool results.
                 - If the request is unclear, ask ONE short clarifying question instead of guessing.
 

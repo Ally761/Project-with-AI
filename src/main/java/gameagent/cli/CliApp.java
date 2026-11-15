@@ -82,6 +82,7 @@ public class CliApp {
         ctx.println("\nagent> " + reply.text());
         if (!c.recommendations.isEmpty()) CliSupport.showRecommendations(ctx, c.recommendations, java.util.List.of());
         if (!c.news.isEmpty()) CliSupport.showNews(ctx, c.news, java.util.List.of());
+        if (c.calendar != null) CliSupport.showCalendar(ctx, c.calendar);
         c.warnings.forEach(w -> ctx.println("Note: " + w));
     }
 }

@@ -2,6 +2,7 @@ package gameagent.cli;
 
 import java.util.List;
 
+import gameagent.calendar.CalendarPlan;
 import gameagent.model.NewsItem;
 import gameagent.model.Recommendation;
 
@@ -19,5 +20,10 @@ public final class CliSupport {
         ctx.println("");
         Printer.news(ctx.out(), items);
         for (String w : warnings) ctx.println("Note: " + w);
+    }
+
+    public static void showCalendar(CliContext ctx, CalendarPlan plan) {
+        ctx.println("");
+        Printer.calendar(ctx.out(), plan);
     }
 }

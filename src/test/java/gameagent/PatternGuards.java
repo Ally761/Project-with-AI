@@ -67,7 +67,11 @@ final class PatternGuards {
                     "gameagent.profile.ProfileUpdate", "gameagent.profile.Sentiment", "gameagent.profile.UserProfile",
                     "gameagent.llm.LLMException", "gameagent.news.NewsException", "gameagent.news.NewsResult",
                     "gameagent.recommend.RecommendationException", "gameagent.recommend.RecommendationResult",
-                    "gameagent.steam.SteamProfileException");
+                    "gameagent.steam.SteamProfileException",
+                    // calendar read models: plain data the facade hands back
+                    "gameagent.calendar.CalendarException", "gameagent.calendar.CalendarGame", "gameagent.calendar.CalendarPlan",
+                    "gameagent.calendar.GameProgress", "gameagent.calendar.Minutes", "gameagent.calendar.PlaySlot",
+                    "gameagent.calendar.ScheduleMode", "gameagent.calendar.Session");
             List<String> violations = new ArrayList<>();
             for (var e : src.entrySet()) {
                 if (!e.getKey().startsWith("gameagent/cli/")) continue;
@@ -140,6 +144,32 @@ final class PatternGuards {
             String service = src.get("gameagent/recommend/RecommendationService.java");
             AllTests.check(!service.contains("PersonalizedStrategy") && !service.contains("CurveballStrategy"),
                     "the context (RecommendationService) must get strategies from the factory, not construct them");
+        });
+
+        AllTests.test("Strategy (calendar): each schedule mode is its own SchedulingStrategy and the service never names one", () -> {
+            Set<Class<?>> kinds = new HashSet<>();
+            for (gameagent.calendar.ScheduleMode m : gameagent.calendar.ScheduleMode.values()) {
+                gameagent.calendar.SchedulingStrategy st = m.strategy();
+                AllTests.check(st != null && !st.name().isBlank(), "strategy for " + m);
+                kinds.add(st.getClass());
+            }
+            AllTests.check(kinds.size() == gameagent.calendar.ScheduleMode.values().length && kinds.size() >= 2, "one distinct strategy per mode: " + kinds);
+            String service = src.get("gameagent/calendar/CalendarService.java");
+            AllTests.check(!service.contains("FocusScheduling") && !service.contains("VarietyScheduling"),
+                    "the context (CalendarService) works through the SchedulingStrategy interface only");
+            AllTests.check(src.get("gameagent/calendar/SchedulingStrategy.java").contains("interface"), "SchedulingStrategy is an interface");
+        });
+
+        AllTests.test("Port: the calendar depends on PlaytimeEstimator, never on the AI-backed class", () -> {
+            AllTests.check(src.get("gameagent/playtime/PlaytimeEstimator.java").contains("interface"), "PlaytimeEstimator is an interface");
+            AllTests.check(!src.get("gameagent/calendar/CalendarService.java").contains("LlmPlaytimeEstimator"), "service uses the port");
+            AllTests.check(src.get("gameagent/AppContext.java").contains("new LlmPlaytimeEstimator"), "the composition root chooses the implementation");
+        });
+
+        AllTests.test("Command/Tool: the calendar is registered as a CLI command and as an agent tool", () -> {
+            AllTests.check(gameagent.cli.commands.Commands.standard().find("calendar").isPresent(), "/calendar registered");
+            AllTests.check(gameagent.cli.commands.Commands.standard().find("cal").isPresent(), "alias registered");
+            AllTests.check(src.get("gameagent/AppContext.java").contains("new PlanCalendarTool("), "plan_calendar tool registered");
         });
 
         AllTests.test("Decorator: retry and fallback wrap any LLMClient, are LLMClients themselves, and stack", () -> {
