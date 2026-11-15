@@ -157,7 +157,7 @@ public class CalendarService implements ProfileListener {
     public synchronized CalendarPlan createCalendar(int weeks, ScheduleMode mode) throws CalendarException {
         if (weeks < 1 || weeks > MAX_WEEKS) throw new CalendarException("Choose between 1 and " + MAX_WEEKS + " weeks.");
         if (state.slots.isEmpty()) {
-            throw new CalendarException("I need to know when you can play first. Example: /calendar when mon,wed 20:00-22:00 chill; sat 14:00-18:00");
+            throw new CalendarException("I need to know when you can play first. Example: mon,wed 20:00-22:00 chill; sat 14:00-18:00");
         }
         CalendarPlan plan = build(weeks, mode == null ? ScheduleMode.FOCUS : mode);
         state.plan = plan;
@@ -168,7 +168,7 @@ public class CalendarService implements ProfileListener {
 
     /** Applies a plain-English change ("no games on Friday", "play Hades first") and rebuilds the plan. */
     public synchronized CalendarPlan refineCalendar(String instruction) throws CalendarException {
-        if (state.plan == null) throw new CalendarException("There is no calendar yet. Create one first: /calendar make");
+        if (state.plan == null) throw new CalendarException("There is no calendar yet. Create one first.");
         if (instruction == null || instruction.isBlank()) throw new CalendarException("What should change? e.g. \"no games on Friday\"");
         Map<String, Object> json;
         try {
@@ -209,7 +209,7 @@ public class CalendarService implements ProfileListener {
         List<String> warnings = new ArrayList<>();
         List<CalendarGame> wanted = gamesToSchedule();
         if (wanted.isEmpty()) {
-            throw new CalendarException("There are no games to schedule yet. Get recommendations with /recommend or add one: /calendar add Celeste | 8");
+            throw new CalendarException("There are no games to schedule yet. Get some recommendations, or add a game together with how many hours it takes.");
         }
         Map<String, GameEstimate> est = estimates(wanted, warnings);
 
@@ -226,7 +226,7 @@ public class CalendarService implements ProfileListener {
         LocalDate start = today.get();
         List<Occurrence> slots = occurrences(start, weeks);
         if (slots.isEmpty()) {
-            throw new CalendarException("Every one of your available days is blocked by your adjustments (" + state.prefs.describe() + "). Use /calendar reset to clear them.");
+            throw new CalendarException("Every one of your available days is blocked by your adjustments (" + state.prefs.describe() + "). Clear the adjustments to continue.");
         }
         int availableMinutes = slots.stream().mapToInt(Occurrence::minutes).sum();
         int neededMinutes = games.stream().mapToInt(PlanGame::totalMinutes).sum();
@@ -242,7 +242,7 @@ public class CalendarService implements ProfileListener {
             limitedTimeAdvice(progress, neededMinutes, availableMinutes, weeks, mode, warnings, suggestions);
         }
         if (progress.stream().anyMatch(GameProgress::estimated)) {
-            warnings.add("Hours marked ~ are AI estimates. Set your own with /calendar add <game> | <hours>.");
+            warnings.add("Hours marked ~ are AI estimates. Add a game with your own hours to replace an estimate.");
         }
         return new CalendarPlan(start, weeks, mode, sessions, progress, warnings, suggestions);
     }
@@ -258,12 +258,12 @@ public class CalendarService implements ProfileListener {
                 .limit(3).map(p -> p.name() + " (" + hours(p.totalMinutes()) + ")").toList();
         suggestions.add("Pick shorter games: " + String.join(", ", shortest) + " would fit more easily.");
         if (mode == ScheduleMode.FOCUS) {
-            suggestions.add("Split games into sessions: \"/calendar make " + weeks + " mix\" spreads every game across several shorter sessions.");
+            suggestions.add("Split games into sessions: the mix style rotates between games and spreads each across several shorter sessions.");
         } else {
-            suggestions.add("Spread over more time: finish fewer games first with \"/calendar make " + Math.min(MAX_WEEKS, weeks + 1) + " focus\".");
+            suggestions.add("Spread over more time: plan " + Math.min(MAX_WEEKS, weeks + 1) + " weeks and finish fewer games first (focus style).");
         }
         suggestions.add("Change the schedule: about " + hours(Math.max(missing, unfinished.stream().mapToInt(p -> p.totalMinutes() - p.scheduledMinutes()).sum()))
-                + " more play time (or more weeks) would finish everything. Update it with /calendar when ...");
+                + " more play time (or more weeks) would finish everything. Update your availability.");
     }
 
     private List<CalendarGame> gamesToSchedule() {

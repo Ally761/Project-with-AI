@@ -1031,7 +1031,7 @@ public class AllTests {
         test("friends: recommendations skip what you own, count several friends higher, and name the friends", () -> {
             Fakes.ScriptedLLM llm = new Fakes.ScriptedLLM(Fakes::smartScript);
             AgentController c = controller(llm, new Fakes.FakeSteam(), List.of(), tmp());
-            try { c.recommendFromFriends("", 5); check(false, "no friends"); } catch (gameagent.recommend.RecommendationException e) { check(e.getMessage().contains("/friends add"), e.getMessage()); }
+            try { c.recommendFromFriends("", 5); check(false, "no friends"); } catch (gameagent.recommend.RecommendationException e) { check(e.getMessage().contains("Add a friend"), e.getMessage()); }
             c.linkSteam("hadesfan"); // owns Hollow Knight, Counter-Strike 2, Dead Cells...
             c.addFriend("alexfriend");
             c.addFriend("samfriend");
@@ -1096,6 +1096,7 @@ public class AllTests {
             }
         });
 
+        GuiTests.run();
         PatternGuards.run();
 
         System.out.println("\n" + passed + " passed, " + failed + " failed");

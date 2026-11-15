@@ -78,7 +78,7 @@ public class PlaytimeService {
         }
         all.addAll(notes);
         all.addAll(r.notes());
-        if (r.strategy().equals("general") && profiles.profile().steamLink().isEmpty()) all.add("Link your Steam profile (/steam) so I can learn your pace.");
+        if (r.strategy().equals("general") && profiles.profile().steamLink().isEmpty()) all.add("Link your Steam profile so I can learn your pace.");
         if (logged > 0) all.add(String.format(Locale.ROOT, "You have already logged %.0f h in it on Steam (that count includes idle time).", logged));
         if (len == null && !lengths.configured()) all.add("For real community data, add free IGDB keys to .env (see .env.example).");
         return new PlaytimeResult(r.game(), r.generalHours(), r.personalHours(), r.personalized(), r.paceFactor(), r.samples(),

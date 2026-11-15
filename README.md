@@ -4,7 +4,7 @@ An AI agent you chat with to build a personal game catalogue. It remembers what 
 refines that profile over time (from chat, ratings and short interviews), verifies every recommendation against the
 real Steam store, and shows gaming news ranked for your tastes.
 
-This is the **command-line version**. A GUI can sit on the same `AgentController` facade.
+It comes in two versions that share the same agent, data and configuration: a **window (GUI)** and a **command line (CLI)**. Both talk to the agent only through the `AgentController` facade, so every feature works in both.
 
 ## Features implemented so far
 
@@ -23,7 +23,7 @@ This is the **command-line version**. A GUI can sit on the same `AgentController
 | Interest log | `/history [n]` | Deterministic |
 | Conversational agent with tools (remembers preferences while you talk, then recommends) | type normally | Agent loop |
 
-**Not implemented yet:** GUI.
+Every feature above has a tab in the window (Chat, Recommend, Profile, Feedback, News, Steam, Calendar, Playtime, Friends) and a command or chat request in the CLI.
 
 ## Prerequisites
 
@@ -39,14 +39,32 @@ This is the **command-line version**. A GUI can sit on the same `AgentController
 ## Run
 
 ```
-run.bat          (Windows)
-./run.sh         (macOS / Linux)
+run-gui.bat      run.bat          (Windows: window / command line)
+./run-gui.sh     ./run.sh         (macOS / Linux: window / command line)
 ```
 
-or with Maven: `mvn package` then `java -jar target/game-agent.jar` (run from the project folder so `.env` is found).
+or with Maven: `mvn package`, then from the project folder (so `.env` is found) `java -jar target/game-agent.jar` for the command line
+or `java -cp target/game-agent.jar gameagent.gui.GuiMain` for the window.
 
-Your data is stored in `data/` (`profile.json`, `catalog.json`, `news-cache.json`), all git-ignored.
-Without a key the app still starts; profile commands work, AI commands show a clear error.
+Your data is stored in `data/` (`profile.json`, `catalog.json`, `news-cache.json`, `friends.json`, `calendar.json`), all git-ignored.
+Without a key the app still starts; profile features work, AI features show a clear error.
+
+## Using the window
+
+| Tab | What it does |
+|-----|--------------|
+| Chat | Talk to the agent; it remembers preferences and uses its tools (recommend, news, playtime, calendar, friends) |
+| Recommend | Personalised picks, the curveball roulette, your saved catalogue, rating a game, opening its store page |
+| Profile | Weighted likes and dislikes, notes, the interest log, reset |
+| Feedback | Rate games (your comment is read by the AI) and take the short preference interview |
+| News | Gaming headlines ranked for you; double-click to open one |
+| Steam | Link, refresh or unlink your public Steam profile; your most-played games |
+| Calendar | Say when you can play, add games, build a week or month (focus or mix), change it in plain words |
+| Playtime | How long a game takes you, from community data adjusted to your own pace |
+| Friends | Add friends by profile link, compare libraries, get picks from what they play |
+
+Slow (AI or network) work runs in the background with a progress bar, so the window never freezes, and problems appear as a message
+instead of a stack trace.
 
 ## Example session
 
@@ -84,6 +102,7 @@ within roughly a minute, rather than a silent wait. Set `LLM_MODEL` / `LLM_FALLB
 
 ```
 cli/        CliApp, Command objects            -> talk only to AgentController
+gui/        GuiApp, one panel per feature      -> talk only to AgentController (GuiContext hides threads and dialogs)
 agent/      AgentController (Facade), ChatAgent (tool loop), Tools, FeedbackService, RefinementService
 recommend/  RecommendationStrategy (Personalized, Curveball, Friends), Recommender (Factory Method creators), GameCatalog
 friends/    FriendService (friends list), FriendRoster (read-only view for strategies)
@@ -98,7 +117,7 @@ llm/        LLMClient (Gemini, OpenAI-compatible), ResilientLLMClient, PromptBui
 
 | Pattern | Where | Problem it solves |
 |---------|-------|-------------------|
-| Facade | `AgentController` | UIs (CLI now, GUI later) use one class instead of every service |
+| Facade | `AgentController` | Both UIs (CLI and GUI) use one class instead of every service |
 | Strategy | `RecommendationStrategy` / `PersonalizedStrategy`, `CurveballStrategy`, `FriendsStrategy` | Different recommendation algorithms behind one interface |
 | Strategy (3) | `PlaytimeStrategy` / `GeneralPlaytimeStrategy`, `PacePlaytimeStrategy` | Typical time as is, or scaled to the user's own pace when enough history exists |
 | Strategy (2) | `SchedulingStrategy` / `FocusScheduling`, `VarietyScheduling` | Finish games one at a time, or rotate between them, behind one interface |
@@ -191,8 +210,10 @@ test.bat         (Windows)
 
 Runs offline using stub servers, a fake Steam and a scripted fake LLM (test code only). It does not call Gemini or Steam.
 These are smoke/verification tests written without a test framework; a JUnit suite is a planned improvement.
+The GUI tests drive every tab through its own buttons without opening a window (Java's headless mode), with a stand-in for the window's
+dialogs and background thread. Painting and layout are not covered by them.
 
-The suite ends with **design-pattern guards** (`PatternGuards.java`). They fail if a change bypasses the Facade (the CLI must go
+The suite ends with **design-pattern guards** (`PatternGuards.java`). They fail if a change bypasses the Facade (the CLI and the GUI must go
 through `AgentController`), names a concrete Steam/RSS/LLM class outside the composition root, stops notifying observers on a
 profile change, builds a strategy without the factory, breaks decorator stacking, or adds a command/tool that is never registered. Further guards cover the calendar's scheduling strategies and its playtime port.
 
@@ -202,5 +223,6 @@ profile change, builds a strategy without the factory, breaks decorator stacking
   that copy their documented response shape; the first real run is the first live check. Please report any parsing problems.
 * Steam Community pages are not an official API and are rate-limited per IP; if Steam changes them, `/steam` reports it
   instead of guessing. Reading the whole library would need Steam's Web API with a free API key, which isn't implemented.
+* The window has been checked headlessly and by rendering each tab to an image, not on a real desktop; the first real run is the first look at it. Please report layout problems.
 * Console exclusives are not in the Steam catalogue, so they show as "(unverified)".
 * Free-tier rate limits: calls are throttled (`LLM_MIN_INTERVAL_MS`) and retried, so replies can take several seconds.

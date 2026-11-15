@@ -44,7 +44,7 @@ public class SteamLinkService {
         Optional<SteamLink> previous = current();
         if (previous.isPresent() && !previous.get().steamId().equals(lib.steamId())) {
             warnings.add("Replaced the previously linked account (" + previous.get().personaName()
-                    + "). Tastes imported from it were kept; use /steam unlink first if you want them removed.");
+                    + "). Tastes imported from it were kept; unlink first if you want them removed.");
         }
 
         if (!lib.complete()) {
@@ -70,7 +70,7 @@ public class SteamLinkService {
     /** Re-reads the already linked profile (new games, new playtime). */
     public SteamLinkResult refresh() throws SteamProfileException {
         SteamLink link = current().orElseThrow(() -> new SteamProfileException(Reason.INVALID_INPUT,
-                "No Steam profile is linked yet. Use /steam <profile link> first."));
+                "No Steam profile is linked yet. Link your profile first."));
         return link(link.profileUrl());
     }
 

@@ -59,7 +59,7 @@ final class PatternGuards {
             return;
         }
 
-        AllTests.test("Facade: the CLI reaches the application only through AgentController", () -> {
+        AllTests.test("Facade: the CLI and the GUI reach the application only through AgentController", () -> {
             Set<String> readModels = Set.of("gameagent.agent.AgentController", "gameagent.agent.AgentReply",
                     "gameagent.profile.Category", "gameagent.profile.ConflictResolver", "gameagent.profile.Preference",
                     "gameagent.profile.ProfileUpdate", "gameagent.profile.Sentiment", "gameagent.profile.UserProfile",
@@ -74,16 +74,19 @@ final class PatternGuards {
                     "gameagent.friends.Friend", "gameagent.friends.FriendException", "gameagent.friends.CommonGames");
             List<String> violations = new ArrayList<>();
             for (var e : src.entrySet()) {
-                if (!e.getKey().startsWith("gameagent/cli/")) continue;
+                boolean cli = e.getKey().startsWith("gameagent/cli/");
+                boolean gui = e.getKey().startsWith("gameagent/gui/") && !e.getKey().endsWith("/GuiMain.java"); // GuiMain is the entry point, like Main
+                if (!cli && !gui) continue;
+                String own = cli ? "gameagent.cli." : "gameagent.gui.";
                 Matcher m = IMPORT.matcher(e.getValue());
                 while (m.find()) {
                     String imp = m.group(1);
-                    boolean ok = imp.startsWith("gameagent.cli.") || imp.startsWith("gameagent.model.")
-                            || readModels.contains(imp);
+                    boolean ok = imp.startsWith(own) || imp.startsWith("gameagent.model.") || readModels.contains(imp);
                     if (!ok) violations.add(e.getKey() + " imports " + imp);
                 }
             }
-            AllTests.check(violations.isEmpty(), "CLI must go through AgentController (Facade). Bypassed by: " + violations);
+            AllTests.check(src.keySet().stream().anyMatch(k -> k.startsWith("gameagent/gui/")), "the GUI is part of the checked sources");
+            AllTests.check(violations.isEmpty(), "CLI and GUI must go through AgentController (Facade). Bypassed by: " + violations);
             AllTests.check(src.get("gameagent/agent/AgentController.java").contains("public SteamLinkResult linkSteam"),
                     "Steam is exposed on the facade");
         });

@@ -53,7 +53,7 @@ public class FriendService implements FriendRoster {
         }
         boolean replacing = friends.stream().anyMatch(f -> f.steamId().equals(lib.steamId()));
         if (!replacing && friends.size() >= MAX_FRIENDS) {
-            throw new SteamProfileException(Reason.INVALID_INPUT, "You already have " + MAX_FRIENDS + " friends. Remove one with /friends remove <name> first.");
+            throw new SteamProfileException(Reason.INVALID_INPUT, "You already have " + MAX_FRIENDS + " friends. Remove one first.");
         }
         Friend f = toFriend(lib);
         friends.removeIf(x -> x.steamId().equals(f.steamId()));
@@ -87,7 +87,7 @@ public class FriendService implements FriendRoster {
 
     public synchronized CommonGames common(String name) throws FriendException {
         Friend f = find(name);
-        if (f == null) throw new FriendException("I don't have a friend called \"" + name + "\". See /friends.");
+        if (f == null) throw new FriendException("I don't have a friend called \"" + name + "\". Check your friends list.");
         List<String> shared = new ArrayList<>();
         List<OwnedGame> theirs = new ArrayList<>();
         for (OwnedGame g : f.games()) {

@@ -71,7 +71,7 @@ public class SteamLibraryAnalyzer {
         if (playtimeHidden) {
             warnings.add("Playtime on that profile is hidden, so I can't tell which games you play most. "
                     + "Your library is saved (owned games won't be recommended) but no tastes were imported. "
-                    + "Untick \"Always keep my total playtime private\" in Steam's privacy settings and run /steam refresh.");
+                    + "Untick \"Always keep my total playtime private\" in Steam's privacy settings and refresh your Steam profile.");
             return new Plan(update, List.of(), warnings);
         }
 
@@ -117,7 +117,7 @@ public class SteamLibraryAnalyzer {
             }
         }
         if (failures >= 2) {
-            warnings.add("The Steam store was unreachable, so I skipped working out your favourite genres. Run /steam refresh later to add them.");
+            warnings.add("The Steam store was unreachable, so I skipped working out your favourite genres. Refresh your Steam profile later to add them.");
         }
         if (hoursByGenre.isEmpty()) return;
 

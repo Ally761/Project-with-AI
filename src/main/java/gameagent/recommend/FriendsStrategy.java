@@ -69,11 +69,11 @@ public class FriendsStrategy implements RecommendationStrategy {
     @Override
     public RecommendationResult recommend(RecommendationRequest req) throws RecommendationException {
         List<Friend> friends = roster.friends();
-        if (friends.isEmpty()) throw new RecommendationException("You haven't added any friends yet. Use /friends add <their Steam profile link>.");
+        if (friends.isEmpty()) throw new RecommendationException("You haven't added any friends yet. Add a friend's public Steam profile link first.");
         if (!req.friend().isBlank()) {
             String q = req.friend().toLowerCase(Locale.ROOT);
             friends = friends.stream().filter(f -> f.name().toLowerCase(Locale.ROOT).startsWith(q) || f.steamId().equals(q)).toList();
-            if (friends.isEmpty()) throw new RecommendationException("I don't have a friend called \"" + req.friend() + "\". See /friends.");
+            if (friends.isEmpty()) throw new RecommendationException("I don't have a friend called \"" + req.friend() + "\". Check your friends list.");
         }
         UserProfile profile = profiles.profile();
         List<String> warnings = new ArrayList<>();
