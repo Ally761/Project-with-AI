@@ -880,6 +880,130 @@ public class AllTests {
             }
         });
 
+        System.out.println("Playtime estimator");
+        test("playtime: pace strategy scales by the median ratio, limited to a sensible range", () -> {
+            var general = new gameagent.playtime.GameEstimate(20, List.of(), true);
+            var slow = List.of(new gameagent.playtime.PaceSample("A", 10, 15), new gameagent.playtime.PaceSample("B", 10, 14), new gameagent.playtime.PaceSample("C", 10, 30));
+            var r = new gameagent.playtime.PacePlaytimeStrategy().estimate("X", general, slow, 0);
+            check(r.personalized() && r.samples() == 3, "personalised from 3 samples");
+            eq(30.0, r.personalHours(), "median 1.5 x 20 h (the outlier of 3.0 is capped and does not swing it)");
+            var extreme = List.of(new gameagent.playtime.PaceSample("A", 10, 1), new gameagent.playtime.PaceSample("B", 10, 1), new gameagent.playtime.PaceSample("C", 10, 1));
+            eq(12.0, new gameagent.playtime.PacePlaytimeStrategy().estimate("X", general, extreme, 0).personalHours(), "never below 60%");
+            check(r.notes().get(0).contains("slower than"), r.notes().get(0));
+        });
+        test("playtime: uses your pace with enough history, otherwise says the general figure is all it has", () -> {
+            Map<String, Double> typical = Map.of("Target", 20.0, "A", 10.0, "B", 10.0, "C", 10.0, "Replayed", 10.0, "Dropped", 40.0);
+            gameagent.playtime.PlaytimeEstimator est = games -> {
+                Map<String, gameagent.playtime.GameEstimate> m = new java.util.LinkedHashMap<>();
+                for (String g : games) m.put(g, typical.containsKey(g) ? new gameagent.playtime.GameEstimate(typical.get(g), List.of(), true) : gameagent.playtime.GameEstimate.unknown());
+                return m;
+            };
+            gameagent.profile.ProfileManager pm = new gameagent.profile.ProfileManager(new gameagent.profile.UserProfile());
+            var svc = new gameagent.playtime.PlaytimeService(gameagent.playtime.GameLengthSource.none(), est, pm);
+            var link = new gameagent.model.SteamLink("76561198000000001", "P", "https://steamcommunity.com/profiles/76561198000000001", java.time.Instant.now());
+            var none = svc.estimate("Target");
+            check(!none.personalized() && none.notes().stream().anyMatch(n -> n.contains("no play history")), "no history: " + none.notes());
+            eq(20.0, none.personalHours(), "general figure");
+            pm.linkSteam(link, List.of(new gameagent.model.OwnedGame(1, "A", 15, 0), new gameagent.model.OwnedGame(2, "Replayed", 200, 0),
+                    new gameagent.model.OwnedGame(3, "Dropped", 2, 0), new gameagent.model.OwnedGame(4, "Unknown Thing", 30, 0)));
+            var few = svc.estimate("Target");
+            check(!few.personalized() && few.notes().stream().anyMatch(n -> n.contains("only found 1")), "replays, abandoned and unknown games are not evidence: " + few.notes());
+            pm.linkSteam(link, List.of(new gameagent.model.OwnedGame(1, "A", 15, 0), new gameagent.model.OwnedGame(5, "B", 15, 0),
+                    new gameagent.model.OwnedGame(6, "C", 15, 0), new gameagent.model.OwnedGame(7, "Target", 3, 0)));
+            var r = svc.estimate("Target");
+            check(r.personalized() && r.strategy().equals("pace"), "personalised: " + r.notes());
+            eq(30.0, r.personalHours(), "1.5 x 20");
+            eq(3.0, r.loggedHours(), "hours already in the game");
+            check(r.notes().stream().anyMatch(n -> n.contains("already logged 3 h")), "mentions logged hours: " + r.notes());
+            check(r.notes().stream().anyMatch(n -> n.contains("IGDB keys")), "tells how to get real data: " + r.notes());
+            try { svc.estimate("Nonexistent Title"); check(false, "unknown game"); }
+            catch (gameagent.playtime.PlaytimeException e) { check(e.getMessage().contains("reliable playtime data"), e.getMessage()); }
+            try { svc.estimate("  "); check(false, "blank"); } catch (gameagent.playtime.PlaytimeException expected) { }
+        });
+        test("cli: /playtime and the chat tool", () -> {
+            Fakes.ScriptedLLM llm = new Fakes.ScriptedLLM(Fakes::smartScript);
+            AgentController c = controller(llm, new Fakes.FakeSteam(), List.of(), tmp());
+            ByteArrayOutputStream buf = new ByteArrayOutputStream();
+            new CliApp(c, new BufferedReader(new StringReader("/playtime\n/playtime Hades\n/steam hadesfan\n/playtime Hades\n/quit\n")), new PrintStream(buf, true, StandardCharsets.UTF_8)).run();
+            String out = buf.toString(StandardCharsets.UTF_8);
+            System.out.println("    ---- CLI transcript (excerpt) ----");
+            for (String line : out.split("\n")) System.out.println("    | " + line);
+            for (String must : new String[]{"Which game?", "Typical time to beat: about 22 h", "no play history", "already logged 213 h"}) {
+                check(out.contains(must), "CLI output should contain: " + must);
+            }
+            var tool = new gameagent.agent.tools.EstimatePlaytimeTool(null);
+            check(tool.name().equals("estimate_playtime"), "tool name");
+        });
+
+        test("igdb: authenticates, matches the exact title, converts seconds to hours, never leaks the secret", () -> {
+            List<String> seen = new ArrayList<>();
+            gameagent.util.HttpPoster fake = (url, headers, body) -> {
+                seen.add(url + " | " + headers.getOrDefault("Authorization", "") + " | " + headers.getOrDefault("Client-ID", "") + " | " + body);
+                if (url.contains("id.twitch.tv")) return "{\"access_token\":\"tok123\",\"expires_in\":5000000,\"token_type\":\"bearer\"}";
+                if (url.endsWith("/games")) {
+                    if (body.contains("Nothing Known")) return "[]";
+                    return "[{\"id\":9,\"name\":\"Hades II\"},{\"id\":113112,\"name\":\"Hades\"}]";
+                }
+                if (url.endsWith("/game_time_to_beats")) {
+                    if (body.contains("game_id")) throw new gameagent.util.HttpPoster.HttpStatusException(400, "api.igdb.com");
+                    return "[{\"id\":1,\"hastily\":57600,\"normally\":79200,\"completely\":187200,\"count\":321}]";
+                }
+                throw new java.io.IOException("unexpected " + url);
+            };
+            var src = new gameagent.playtime.IgdbGameLengthSource(fake, "my-client", "S3CRET");
+            var len = src.lookup("Hades").orElseThrow();
+            eq("Hades", len.matchedName(), "exact match, not the sequel");
+            eq(22.0, len.normalHours(), "79200 s = 22 h");
+            eq(16.0, len.hastyHours(), "hasty");
+            eq(52.0, len.completeHours(), "completionist");
+            eq(321, len.submissions(), "count");
+            check(seen.stream().anyMatch(s -> s.contains("Bearer tok123") && s.contains("my-client")), "bearer token and client id sent: " + seen);
+            check(seen.stream().anyMatch(s -> s.contains("game = 113112")), "falls back to the alternate field name on HTTP 400: " + seen);
+            check(src.lookup("Nothing Known").isEmpty(), "unknown game is empty, not an error");
+            long tokenCalls = seen.stream().filter(s -> s.contains("id.twitch.tv")).count();
+            eq(1L, tokenCalls, "the token is cached");
+            gameagent.util.HttpPoster denied = (url, headers, body) -> { throw new gameagent.util.HttpPoster.HttpStatusException(403, "id.twitch.tv"); };
+            try { new gameagent.playtime.IgdbGameLengthSource(denied, "my-client", "S3CRET").lookup("Hades"); check(false, "should fail"); }
+            catch (gameagent.playtime.PlaytimeException e) { check(e.getMessage().contains("IGDB_CLIENT_SECRET") && !e.getMessage().contains("S3CRET"), "helpful and secret-free: " + e.getMessage()); }
+            gameagent.util.HttpPoster none = (url, headers, body) -> url.contains("twitch") ? "{\"access_token\":\"t\",\"expires_in\":9999}" : "[]";
+            check(new gameagent.playtime.IgdbGameLengthSource(none, "a", "b").lookup("  ").isEmpty(), "blank name");
+        });
+        test("playtime: third-party figures win over the AI, the AI covers gaps, outages are explained", () -> {
+            gameagent.playtime.PlaytimeEstimator ai = games -> {
+                Map<String, gameagent.playtime.GameEstimate> m = new java.util.LinkedHashMap<>();
+                for (String g : games) m.put(g, new gameagent.playtime.GameEstimate(99, List.of(), true));
+                return m;
+            };
+            boolean[] fail = {false};
+            gameagent.playtime.GameLengthSource db = new gameagent.playtime.GameLengthSource() {
+                public String name() { return "IGDB"; }
+                public java.util.Optional<gameagent.playtime.GameLength> lookup(String g) throws gameagent.playtime.PlaytimeException {
+                    if (fail[0]) throw new gameagent.playtime.PlaytimeException("HTTP 429 from api.igdb.com");
+                    return g.equals("Hades") ? java.util.Optional.of(new gameagent.playtime.GameLength("Hades", 16, 22, 52, 321, "IGDB")) : java.util.Optional.empty();
+                }
+            };
+            var pm = new gameagent.profile.ProfileManager(new gameagent.profile.UserProfile());
+            var svc = new gameagent.playtime.PlaytimeService(db, ai, pm);
+            var r = svc.estimate("Hades");
+            eq(22.0, r.generalHours(), "IGDB normal time, not the AI's 99");
+            eq("IGDB", r.source(), "source");
+            eq(16.0, r.lowHours(), "low"); eq(52.0, r.highHours(), "high"); eq(321, r.submissions(), "players");
+            check(r.notes().get(0).contains("IGDB (321 players)") && r.notes().get(0).contains("rushed"), r.notes().get(0));
+            var gap = svc.estimate("Obscure Game");
+            eq(99.0, gap.generalHours(), "AI covers what the database lacks");
+            eq("AI estimate", gap.source(), "source says AI");
+            check(gap.notes().get(0).contains("IGDB had no data"), gap.notes().get(0));
+            fail[0] = true;
+            var down = new gameagent.playtime.PlaytimeService(db, ai, pm).estimate("Hades");
+            eq(99.0, down.generalHours(), "outage falls back to the AI");
+            check(down.notes().stream().anyMatch(n -> n.contains("IGDB is unavailable") && n.contains("429")), "outage explained: " + down.notes());
+        });
+        test("config: IGDB keys are read from .env and placeholders count as unset", () -> {
+            check(new AppConfig(Map.of()).igdbClientId().isEmpty(), "unset");
+            check(new AppConfig(Map.of("IGDB_CLIENT_ID", "YOUR_ID", "IGDB_CLIENT_SECRET", "abc")).igdbClientId().isEmpty(), "placeholder is unset");
+            eq("abc", new AppConfig(Map.of("IGDB_CLIENT_SECRET", "abc")).igdbClientSecret(), "secret read");
+        });
+
         PatternGuards.run();
 
         System.out.println("\n" + passed + " passed, " + failed + " failed");

@@ -46,7 +46,7 @@ final class PatternGuards {
 
     /** Classes that wrap third-party services or the network. Only the composition roots may name them. */
     private static final List<String> CONCRETE = List.of("SteamStoreAdapter", "SteamCommunityAdapter", "RssNewsSource",
-            "GeminiClient", "OpenAICompatibleClient", "JdkHttpFetcher");
+            "GeminiClient", "OpenAICompatibleClient", "JdkHttpFetcher", "JdkHttpPoster", "IgdbGameLengthSource");
 
     static void run() throws Exception {
         System.out.println("Design pattern guards");
@@ -71,7 +71,8 @@ final class PatternGuards {
                     // calendar read models: plain data the facade hands back
                     "gameagent.calendar.CalendarException", "gameagent.calendar.CalendarGame", "gameagent.calendar.CalendarPlan",
                     "gameagent.calendar.GameProgress", "gameagent.calendar.Minutes", "gameagent.calendar.PlaySlot",
-                    "gameagent.calendar.ScheduleMode", "gameagent.calendar.Session");
+                    "gameagent.calendar.ScheduleMode", "gameagent.calendar.Session",
+                    "gameagent.playtime.PlaytimeException", "gameagent.playtime.PlaytimeResult");
             List<String> violations = new ArrayList<>();
             for (var e : src.entrySet()) {
                 if (!e.getKey().startsWith("gameagent/cli/")) continue;
@@ -98,7 +99,7 @@ final class PatternGuards {
                 }
             }
             AllTests.check(violations.isEmpty(), "Depend on the ports (GameDataSource, SteamProfileSource, NewsSource, LLMClient, HttpFetcher): " + violations);
-            for (String port : List.of("data/GameDataSource", "steam/SteamProfileSource", "news/NewsSource", "llm/LLMClient", "util/HttpFetcher")) {
+            for (String port : List.of("data/GameDataSource", "steam/SteamProfileSource", "news/NewsSource", "llm/LLMClient", "util/HttpFetcher", "util/HttpPoster", "playtime/GameLengthSource")) {
                 AllTests.check(src.get("gameagent/" + port + ".java").contains("interface"), port + " is an interface");
             }
         });
@@ -160,6 +161,15 @@ final class PatternGuards {
             AllTests.check(src.get("gameagent/calendar/SchedulingStrategy.java").contains("interface"), "SchedulingStrategy is an interface");
         });
 
+        AllTests.test("Strategy (playtime): general and pace-adjusted estimates are separate strategies chosen by the service", () -> {
+            AllTests.check(src.get("gameagent/playtime/PlaytimeStrategy.java").contains("interface"), "PlaytimeStrategy is an interface");
+            AllTests.check(!gameagent.playtime.GeneralPlaytimeStrategy.class.equals(gameagent.playtime.PacePlaytimeStrategy.class), "distinct");
+            String service = src.get("gameagent/playtime/PlaytimeService.java");
+            AllTests.check(service.contains("PlaytimeStrategy strategy ="), "the service holds the choice as a PlaytimeStrategy");
+            AllTests.check(!service.contains("IgdbGameLengthSource"), "the service depends on the GameLengthSource port only");
+            AllTests.check(!service.contains("Math.") && !service.contains("median"), "the arithmetic lives in the strategies, not the service");
+        });
+
         AllTests.test("Port: the calendar depends on PlaytimeEstimator, never on the AI-backed class", () -> {
             AllTests.check(src.get("gameagent/playtime/PlaytimeEstimator.java").contains("interface"), "PlaytimeEstimator is an interface");
             AllTests.check(!src.get("gameagent/calendar/CalendarService.java").contains("LlmPlaytimeEstimator"), "service uses the port");
@@ -169,6 +179,8 @@ final class PatternGuards {
         AllTests.test("Command/Tool: the calendar is registered as a CLI command and as an agent tool", () -> {
             AllTests.check(gameagent.cli.commands.Commands.standard().find("calendar").isPresent(), "/calendar registered");
             AllTests.check(gameagent.cli.commands.Commands.standard().find("cal").isPresent(), "alias registered");
+            AllTests.check(gameagent.cli.commands.Commands.standard().find("playtime").isPresent(), "/playtime registered");
+            AllTests.check(src.get("gameagent/AppContext.java").contains("new EstimatePlaytimeTool("), "estimate_playtime tool registered");
             AllTests.check(src.get("gameagent/AppContext.java").contains("new PlanCalendarTool("), "plan_calendar tool registered");
         });
 

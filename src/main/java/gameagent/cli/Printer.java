@@ -51,6 +51,16 @@ final class Printer {
         }
     }
 
+    static void playtime(PrintStream out, gameagent.playtime.PlaytimeResult r) {
+        out.println(r.game());
+        out.println(String.format(java.util.Locale.ROOT, "  Typical time to beat: about %.0f h  (source: %s)", r.generalHours(), r.source()));
+        if (r.lowHours() > 0 && r.highHours() > 0) {
+            out.println(String.format(java.util.Locale.ROOT, "  Range:                %.0f h rushed to %.0f h completionist", r.lowHours(), r.highHours()));
+        }
+        out.println(String.format(java.util.Locale.ROOT, "  For you:              about %.0f h%s", r.personalHours(), r.personalized() ? "" : "  (same as typical)"));
+        for (String n : r.notes()) wrap(out, "- " + n, "  ");
+    }
+
     static void calendar(PrintStream out, CalendarPlan plan) {
         out.println("Gaming calendar: " + plan.start() + " to " + plan.end() + " (" + plan.weeks() + (plan.weeks() == 1 ? " week" : " weeks")
                 + ", " + plan.mode().strategy().name() + " mode, " + Minutes.hours(plan.totalMinutes()) + " of play)");

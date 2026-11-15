@@ -22,6 +22,11 @@ public final class CliSupport {
         for (String w : warnings) ctx.println("Note: " + w);
     }
 
+    public static void showPlaytime(CliContext ctx, gameagent.playtime.PlaytimeResult r) {
+        ctx.println("");
+        Printer.playtime(ctx.out(), r);
+    }
+
     public static void showCalendar(CliContext ctx, CalendarPlan plan) {
         ctx.println("");
         Printer.calendar(ctx.out(), plan);

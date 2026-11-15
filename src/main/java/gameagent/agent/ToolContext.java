@@ -19,4 +19,6 @@ public class ToolContext {
     public final List<String> toolsUsed = new ArrayList<>();
     /** Set when a tool built or changed the gaming calendar this turn. */
     public CalendarPlan calendar;
+    /** Set when a tool estimated how long a game takes the user. */
+    public gameagent.playtime.PlaytimeResult playtime;
 }

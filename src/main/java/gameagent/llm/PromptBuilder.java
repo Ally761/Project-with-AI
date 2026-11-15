@@ -166,6 +166,7 @@ public final class PromptBuilder {
                 - When the user wants game suggestions (even vaguely), call recommend_games with their request in "query". Results are shown to the user automatically with details; do not re-list them in your reply, just comment briefly.
                 - Use search_games to check facts about a specific title. Use get_news for gaming news. Use get_profile only if you need a refresher.
                 - When the user wants a gaming schedule or calendar, or tells you when they can play, call plan_calendar. The calendar is shown automatically; just comment briefly.
+                - When the user asks how long a game takes to beat (for them), call estimate_playtime.
                 - Never invent games, prices or release dates; rely on tool results.
                 - If the request is unclear, ask ONE short clarifying question instead of guessing.
 

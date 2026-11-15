@@ -18,10 +18,11 @@ This is the **command-line version**. A GUI can sit on the same `AgentController
 | Gaming news panel | `/news [topic]` | Hybrid: RSS feeds, LLM ranking, keyword fallback, stored copy when offline |
 | Steam profile link (most-played games from your public profile URL) | `/steam <profile link>`, `/steam refresh`, `/steam top`, `/steam unlink`, or paste your link in chat | Hybrid: playtime rules are deterministic, the AI uses the result |
 | Gaming calendar (weekly or monthly play schedule) | `/calendar when ...`, `/calendar add <game> \| <hours>`, `/calendar make [weeks\|month] [focus\|mix]`, `/calendar tweak <change>`, or ask in chat | Hybrid: the schedule is computed by rules so it always fits your time; the AI reads free-text availability, estimates playtime and applies tweaks |
+| Playtime estimator ("how long will this take me?") | `/playtime <game>`, or ask in chat | Hybrid: IGDB community data (AI estimate as fallback) for the typical time; rules adjust it to your pace from your Steam hours |
 | Interest log | `/history [n]` | Deterministic |
 | Conversational agent with tools (remembers preferences while you talk, then recommends) | type normally | Agent loop |
 
-**Not implemented yet:** friend recommendations, a standalone playtime estimator command, GUI. (The calendar uses a small AI-backed playtime estimator internally.)
+**Not implemented yet:** friend recommendations, GUI.
 
 ## Prerequisites
 
@@ -87,7 +88,7 @@ recommend/  RecommendationStrategy (Personalized, Curveball), RecommendationFact
 profile/    UserProfile, ProfileManager (+ listeners), JSON persistence
 news/       NewsSource (RSS adapter), NewsService
 calendar/   CalendarService, SchedulingStrategy (Focus, Variety), CalendarStore
-playtime/   PlaytimeEstimator (port), LlmPlaytimeEstimator
+playtime/   PlaytimeService, PlaytimeStrategy (General, Pace), PlaytimeEstimator (port), LlmPlaytimeEstimator
 steam/      SteamProfileSource (Steam Community adapter), SteamLibraryAnalyzer, SteamLinkService
 data/       GameDataSource (Steam store adapter)
 llm/        LLMClient (Gemini, OpenAI-compatible), ResilientLLMClient, PromptBuilder
@@ -97,10 +98,11 @@ llm/        LLMClient (Gemini, OpenAI-compatible), ResilientLLMClient, PromptBui
 |---------|-------|-------------------|
 | Facade | `AgentController` | UIs (CLI now, GUI later) use one class instead of every service |
 | Strategy | `RecommendationStrategy` / `PersonalizedStrategy`, `CurveballStrategy` | Different recommendation algorithms behind one interface |
+| Strategy (3) | `PlaytimeStrategy` / `GeneralPlaytimeStrategy`, `PacePlaytimeStrategy` | Typical time as is, or scaled to the user's own pace when enough history exists |
 | Strategy (2) | `SchedulingStrategy` / `FocusScheduling`, `VarietyScheduling` | Finish games one at a time, or rotate between them, behind one interface |
 | Factory | `RecommendationFactory`, `LLMClientFactory` | Central construction of strategies / LLM clients |
 | Observer | `ProfileManager` -> `ProfileListener` (`AutoSaveListener`, `GameCatalog`, `NewsService`, `CalendarService`) | Profile changes automatically save, flag the catalogue and calendar as out of date and drop cached news rankings |
-| Adapter | `SteamStoreAdapter`, `SteamCommunityAdapter`, `RssNewsSource` | Third-party formats are converted to our `Game` / `NewsItem` |
+| Adapter | `SteamStoreAdapter`, `SteamCommunityAdapter`, `RssNewsSource`, `IgdbGameLengthSource` | Third-party formats are converted to our `Game` / `NewsItem` |
 | Decorator | `ResilientLLMClient` | Adds throttling and retry/backoff to any LLM client |
 | Command | `cli/commands/*` | Each CLI command is an object; easy to add or reuse in a GUI |
 
@@ -122,6 +124,21 @@ AI estimates the hours and a "vibe" (chill, intense...), and those numbers are s
 match it. `focus` finishes one game before the next; `mix` rotates with sessions of at most 90 minutes.
 If your games do not fit in your free time, the calendar says so and offers three options: shorter games, splitting games into
 sessions (`mix`), or changing your schedule. The plan is saved in `data/calendar.json` and flagged when your profile changes.
+
+## Playtime estimator
+
+`/playtime Hades` (or ask "how long would Hades take me?").
+
+**Typical time.** With IGDB keys configured, the typical time comes from IGDB's community "time to beat" data (documented API,
+free), shown with the number of players and the rushed-to-completionist range. HowLongToBeat has no official API, so it is not used.
+To enable it: create a free application at https://dev.twitch.tv/console, then put its Client ID and a generated Client Secret in
+`.env` as `IGDB_CLIENT_ID` and `IGDB_CLIENT_SECRET` (the file is git-ignored). Titles must match exactly ("Hades" never becomes
+"Hades II"). If IGDB has no data for a game, or is unreachable, the AI's estimate is used and the answer says so.
+
+**Your pace.** The service looks at your Steam games: where your hours are 40% to 250% of the typical time, you probably played
+through once, so those games show your pace. With at least 3 such games, your estimate is the typical time scaled by your median
+pace (limited to 60%-160%). With fewer, you get the typical time and are told why. Replayed favourites, abandoned games and games
+with no figure are ignored. If you already own the game, your logged hours are shown.
 
 ## Linking your Steam profile
 

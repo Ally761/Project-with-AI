@@ -15,6 +15,9 @@ import gameagent.llm.LLMClient;
 import gameagent.llm.LLMException;
 import gameagent.model.Game;
 import gameagent.news.NewsException;
+import gameagent.playtime.PlaytimeException;
+import gameagent.playtime.PlaytimeResult;
+import gameagent.playtime.PlaytimeService;
 import gameagent.news.NewsResult;
 import gameagent.news.NewsService;
 import gameagent.profile.ConflictResolver;
@@ -45,11 +48,12 @@ public class AgentController {
     private final GameDataSource data;
     private final SteamLinkService steam;
     private final CalendarService calendar;
+    private final PlaytimeService playtime;
 
     public AgentController(LLMClient llm, ProfileManager profiles, ChatAgent chatAgent, ConversationMemory memory,
                            RecommendationService recommendations, NewsService news, FeedbackService feedback,
                            RefinementService refinement, GameDataSource data, SteamLinkService steam,
-                           CalendarService calendar) {
+                           CalendarService calendar, PlaytimeService playtime) {
         this.llm = llm;
         this.profiles = profiles;
         this.chatAgent = chatAgent;
@@ -61,6 +65,7 @@ public class AgentController {
         this.data = data;
         this.steam = steam;
         this.calendar = calendar;
+        this.playtime = playtime;
     }
 
     public String modelName() { return llm.name(); }
@@ -150,6 +155,13 @@ public class AgentController {
     public boolean calendarIsStale() { return calendar.isStale(); }
 
     public void resetCalendarAdjustments() { calendar.resetAdjustments(); }
+
+    // ---- playtime
+    /** How long the game takes this user: typical time, adjusted to their pace when their history allows. */
+    public PlaytimeResult estimatePlaytime(String game) throws PlaytimeException {
+        profiles.log("playtime", game == null ? "" : game);
+        return playtime.estimate(game);
+    }
 
     // ---- misc
     public Optional<Game> lookupGame(String name) throws DataSourceException { return data.findByName(name); }

@@ -109,6 +109,12 @@ public final class AppConfig {
         return out;
     }
 
+    /** IGDB (Twitch developer app) credentials for third-party playtime data; blank when not configured. */
+    public String igdbClientId() { return placeholderToEmpty(get("IGDB_CLIENT_ID", "")); }
+    public String igdbClientSecret() { return placeholderToEmpty(get("IGDB_CLIENT_SECRET", "")); }
+
+    private static String placeholderToEmpty(String v) { return v.startsWith("YOUR_") ? "" : v; }
+
     public int minIntervalMs() { return getInt("LLM_MIN_INTERVAL_MS", 4000); }
     public Path dataDir() { return Path.of(get("DATA_DIR", "data")); }
     public String steamCountry() { return get("STEAM_COUNTRY", "US"); }
