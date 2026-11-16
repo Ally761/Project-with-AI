@@ -4,6 +4,8 @@ A small AI assistant that helps you figure out what to play. Tell it what you li
 shows gaming news picked for you, plans when to play them and guesses how long they'll take you.
 It runs as a window (GUI) or in the terminal (CLI) - same features either way.
 
+Demo video: https://drive.google.com/file/d/1TDejDM4c5ST1gJxHoUVsKU3dj7qx6lFT/view?usp=sharing
+
 ## What you need
 
 - **Java 17 or newer** (check with `java -version`). That's the only requirement, there is nothing else to install:
